@@ -20,27 +20,11 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from utils import slurmd
+from utils import service
 
 
-class TestSlurmd(unittest.TestCase):
+class TestService(unittest.TestCase):
     """Unit tests for methods in slurmd utility module."""
-
-    @patch("charms.operator_libs_linux.v1.systemd._systemctl")
-    def test_start(self, _) -> None:
-        slurmd.start()
-
-    @patch("charms.operator_libs_linux.v1.systemd._systemctl")
-    def test_stop(self, _) -> None:
-        slurmd.stop()
-
-    @patch("charms.operator_libs_linux.v1.systemd._systemctl")
-    def test_restart(self, _) -> None:
-        slurmd.restart()
-
-    @patch("pathlib.Path.write_text")
-    def test_overwrite_default(self, _) -> None:
-        slurmd.override_default("127.0.0.1")
 
     @patch("pathlib.Path.is_dir", return_value=False)
     @patch("pathlib.Path.mkdir")
@@ -55,7 +39,7 @@ class TestSlurmd(unittest.TestCase):
     @patch("charms.operator_libs_linux.v1.systemd._systemctl")
     def test_override_service_yes_service_d(self, *_) -> None:
         """Test override_service(...) when slurmd.service.d exists."""
-        slurmd.override_service()
+        service.override_service()
 
     @patch("datetime.timedelta", return_value=datetime.timedelta(-1))
     def test_start_slurmd_service_fail(self, _) -> None:
@@ -66,7 +50,7 @@ class TestSlurmd(unittest.TestCase):
             the end_time to yesterday instead of the future.
         """
         with self.assertRaises(SystemExit) as e:
-            slurmd._start_slurmd_service()
+            service._start_slurmd_service()
 
         self.assertEqual(e.exception.code, 1)
 
@@ -76,4 +60,4 @@ class TestSlurmd(unittest.TestCase):
         process_mock = Mock()
         process_mock.configure_mock(**{"wait.side_effect": subprocess.TimeoutExpired("", 0)})
         mock_popen.return_value = process_mock
-        slurmd._start_slurmd_service()
+        service._start_slurmd_service()
