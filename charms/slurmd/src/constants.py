@@ -14,6 +14,8 @@
 
 """Slurmd Charm Constants."""
 
+SLURMD_INTEGRATION_NAME = "slurmctld"
+
 NHC_CONFIG = """
 # Enforce short hostnames to match the node names as tracked by slurm.
 * || HOSTNAME="$HOSTNAME_S"

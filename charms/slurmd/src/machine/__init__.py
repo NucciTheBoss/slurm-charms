@@ -1,4 +1,4 @@
-# Copyright 2023 Canonical Ltd.
+# Copyright 2023-2025 Canonical Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,4 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utility modules used in the slurmd operator."""
+"""Machine-specific modules used within the slurmd charm.
+
+Modules:
+    - `gpu`: Manage GPU-related operations.
+    - `nhc`: Manage Node Health Check (NHC) operations.
+    - `rdma`: Manage RDMA operations.
+    - `service`: Manage custom systemd service overrides for slurmd.
+"""
+
+from . import gpu as gpu
+from . import nhc as nhc
+from . import rdma as rdma
+from . import service as service
+from .gpu import GPUOpsError as GPUOpsError
+from .rdma import RDMAOpsError as RDMAOpsError

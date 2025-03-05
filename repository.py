@@ -417,7 +417,7 @@ def fmt_cli(
     slurm_charms: [str],
     **kwargs,
 ):
-    """Apply formatting standards to code. """
+    """Apply formatting standards to code."""
     files = get_source_dirs(slurm_charms)
     files.append(str(ROOT_DIR / "tests"))
     logging.info(f"Running black for directories {files}")

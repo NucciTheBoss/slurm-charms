@@ -74,9 +74,11 @@ from typing import Any, Optional, Union
 
 import distro
 import dotenv
+import pynvml
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from slurmutils import calculate_rs
 from slurmutils.editors import (
     acctgatherconfig,
     cgroupconfig,
@@ -88,6 +90,9 @@ from slurmutils.models import (
     AcctGatherConfig,
     CgroupConfig,
     GRESConfig,
+    GRESNameMapping,
+    GRESName,
+    Node,
     SlurmConfig,
     SlurmdbdConfig,
 )
@@ -110,14 +115,15 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 15
+LIBPATCH = 17
 
 # Charm library dependencies to fetch during `charmcraft pack`.
 PYDEPS = [
-    "cryptography~=44.0.0",
+    "cryptography~=44.0.1",
     "pyyaml>=6.0.2",
     "python-dotenv~=1.0.1",
     "slurmutils<1.0.0,>=0.11.0",
+    "nvidia-ml-py~=12.570",
     "distro~=1.9.0",
 ]
 
@@ -238,6 +244,11 @@ class _ConfigManager(ABC):
         self._config_path = config_path
         self._user = user
         self._group = group
+
+    @property
+    def path(self) -> Path:
+        """Return the configuration file path."""
+        return Path(self._config_path)
 
     @abstractmethod
     def load(self) -> BaseModel:
@@ -522,6 +533,10 @@ class _OpsManager(ABC):
         """Install Slurm."""
 
     @abstractmethod
+    def installed(self) -> bool:
+        """Check if Slurm is installed."""
+
+    @abstractmethod
     def version(self) -> str:
         """Get the current version of Slurm installed on the system."""
 
@@ -557,6 +572,11 @@ class _SnapManager(_OpsManager):
         #   We will possibly need to account for a third-party Slurm snap installation
         #   where aliasing is not automatically performed.
         _snap("alias", "slurm.mungectl", "mungectl")
+
+    def installed(self) -> bool:
+        """Check if the `slurm` snap is installed."""
+        info = yaml.safe_load(_snap("info", "slurm"))
+        return bool(info.get("installed"))
 
     def version(self) -> str:
         """Get the current version of the `slurm` snap installed on the system."""
@@ -605,6 +625,10 @@ class _AptManager(_OpsManager):
         self._install_service()
         self._create_state_save_location()
         self._apply_overrides()
+
+    def installed(self) -> bool:
+        """Check if Slurm service is installed."""
+        return apt.DebianPackage.from_installed_package(self._service_name).present
 
     def version(self) -> str:
         """Get the current version of Slurm installed on the system."""
@@ -773,6 +797,22 @@ class _AptManager(_OpsManager):
                     )
                 )
 
+                sackd_restart_override = Path(
+                    "/etc/systemd/system/sackd.service.d/20-sackd-restart.conf"
+                )
+                sackd_restart_override.parent.mkdir(exist_ok=True, parents=True)
+                sackd_restart_override.write_text(
+                    textwrap.dedent(
+                        """
+                        [Unit]
+                        StartLimitIntervalSec=90
+                        StartLimitBurst=10
+                        [Service]
+                        Restart=on-failure
+                        RestartSec=10
+                        """
+                    )
+                )
                 # TODO: https://github.com/charmed-hpc/hpc-libs/issues/54 -
                 #   Make `sackd` create its service environment file so that we
                 #   aren't required to manually create it here.
@@ -800,7 +840,7 @@ class _AptManager(_OpsManager):
                 self._set_ulimit()
 
                 nofile_override = Path(
-                    "/etc/systemd/system/slurmctld.service.d/10-slurmd-nofile.conf"
+                    "/etc/systemd/system/slurmd.service.d/10-slurmd-nofile.conf"
                 )
                 nofile_override.parent.mkdir(exist_ok=True, parents=True)
                 nofile_override.write_text(
@@ -823,6 +863,23 @@ class _AptManager(_OpsManager):
                         [Service]
                         ExecStart=
                         ExecStart=/usr/bin/sh -c "/usr/sbin/slurmd -D -s $${SLURMD_CONFIG_SERVER:+--conf-server $$SLURMD_CONFIG_SERVER} $$SLURMD_OPTIONS"
+                        """
+                    )
+                )
+
+                restart_override = Path(
+                    "/etc/systemd/system/slurmd.service.d/30-slurmd-restart.conf"
+                )
+                restart_override.parent.mkdir(exist_ok=True, parents=True)
+                restart_override.write_text(
+                    textwrap.dedent(
+                        """
+                        [Unit]
+                        StartLimitIntervalSec=90
+                        StartLimitBurst=10
+                        [Service]
+                        Restart=on-failure
+                        RestartSec=10
                         """
                     )
                 )
@@ -909,6 +966,11 @@ class _JWTKeyManager:
         self._user = user
         self._group = group
 
+    @property
+    def path(self) -> Path:
+        """Get the current jwt keyfile path."""
+        return self._keyfile
+
     def get(self) -> str:
         """Get the current jwt key."""
         return self._keyfile.read_text()
@@ -985,6 +1047,7 @@ class _SlurmManagerBase:
         self.jwt = _JWTKeyManager(self._ops_manager, self.user, self.group)
         self.exporter = _PrometheusExporterManager(self._ops_manager)
         self.install = self._ops_manager.install
+        self.installed = self._ops_manager.installed
         self.version = self._ops_manager.version
 
     @property
@@ -1091,6 +1154,70 @@ class SlurmdManager(_SlurmManagerBase):
     def config_server(self) -> None:
         """Unset the configuration server address of this `slurmd` node."""
         self._env_manager.unset("SLURMD_CONFIG_SERVER")
+
+    def get_hardware_info(self) -> Node | None:
+        """Get machine hardware information using `slurmd -C`.
+
+        Returns:
+            None if `slurmd` is not installed, otherwise node information.
+
+        Raises:
+            SlurmOpsError: Raised if `slurmd -C` returns a non-zero exit code.
+
+        Notes:
+            - This method removes `UpTime` from the output of `slurmd -C`
+              since it is not a valid node configuration option in slurm.conf.
+        """
+        if not self.installed():
+            return None
+
+        r = _call("slurmd", "-C").stdout
+        return Node.from_str(r.split()[:-1])
+
+    def get_gres_info(self) -> GRESNameMapping:
+        """Get machine generic device information.
+
+        This method will look for the following generic resources on the machine:
+
+        - GPUs (NVIDIA)
+        """
+        gres = GRESNameMapping()
+
+        try:
+            pynvml.nvmlInit()
+        except pynvml.NVMLError as e:
+            _logger.warning("no gpu info gathered. could not detect drivers.")
+            _logger.debug("nvml initialization failed. reason:\n%s", e)
+            return gres
+
+        # Gather gpu data from machine using `pynvml`.
+        gpu_info = {}
+        gpu_count = pynvml.nvmlDeviceGetCount()
+        for i in range(gpu_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+
+            # Make model name lowercase and replace whitespace with underscores to turn into GRES-compatible format,
+            # e.g. "Tesla T4" -> "tesla_t4", which can be added as "Gres=gpu:tesla_t4:1"
+            # Aims to follow convention set by Slurm autodetect:
+            # https://slurm.schedmd.com/gres.html#AutoDetect
+            model = pynvml.nvmlDeviceGetName(handle)
+            model = "_".join(model.split()).lower()
+
+            minor_number = pynvml.nvmlDeviceGetMinorNumber(handle)
+            gpu_info[model] = gpu_info.get(model, []) + [minor_number]
+
+        pynvml.nvmlShutdown()
+
+        # Construct gres configuration for Slurm.
+        for model, devices in gpu_info.items():
+            device_count = len(devices)
+            suffix = devices[0] if device_count == 1 else calculate_rs(devices)
+            config = GRESName(Name="gpu", Type=model, File=f"/dev/nvidia{suffix}", Count=device_count)
+            gres[config.name] = gres.get(config.name, []) + [config]
+
+        return gres
+
+
 
 
 class SlurmdbdManager(_SlurmManagerBase):

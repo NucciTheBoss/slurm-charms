@@ -1,7 +1,12 @@
-# Copyright 2024 Omnivector, LLC.
+# Copyright 2024-2025 Omnivector, LLC.
 # See LICENSE file for licensing details.
 
 """This module provides constants for the slurmctld-operator charm."""
+
+SACKD_INTEGRATION_NAME = "login-node"
+SLURMD_INTEGRATION_NAME = "slurmd"
+SLURMDBD_INTEGRATION_NAME = "slurmdbd"
+SLURMRESTD_INTEGRATION_NAME = "slurmrestd"
 
 PEER_RELATION = "slurmctld-peer"
 
