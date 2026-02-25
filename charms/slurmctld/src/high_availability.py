@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2025-2026 Canonical Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,15 +21,14 @@ from pathlib import Path
 from subprocess import CalledProcessError
 
 import ops
-from constants import HA_MOUNT_LOCATION
-from hpc_libs.machine import call
-
 from charms.filesystem_client.v0.mount_info import (
     MountedFilesystemEvent,
     MountInfo,
     MountProviderConnectedEvent,
     MountRequires,
 )
+from constants import HA_MOUNT_LOCATION
+from hpc_libs.machine import call
 
 logger = logging.getLogger()
 

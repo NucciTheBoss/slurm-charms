@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2025 Vantage Compute Corporation
+# Copyright 2025-2026 Vantage Compute Corporation
 # Copyright 2020-2024 Omnivector, LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +21,7 @@ import secrets
 from typing import cast
 
 import ops
+from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 from config import (
     get_controllers,
     init_config,
@@ -87,8 +88,6 @@ from state import (
     slurmctld_installed,
     slurmctld_is_active,
 )
-
-from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 
 logger = logging.getLogger(__name__)
 reconfigure = reconfigure(hook=reconfigure_slurmctld)
