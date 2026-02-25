@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2025 Vantage Compute Corporation
+# Copyright 2025-2026 Vantage Compute Corporation
 # Copyright 2020-2024 Omnivector, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,6 +23,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import ops
+from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
+from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 from config import (
     init_config,
     reconfigure_slurmdbd,
@@ -45,9 +47,6 @@ from hpc_libs.interfaces import (
 from hpc_libs.utils import StopCharm, leader, reconfigure, refresh
 from slurm_ops import SlurmdbdManager, SlurmOpsError
 from state import check_slurmdbd, slurmdbd_installed
-
-from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
-from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 
 logger = logging.getLogger(__name__)
 #
