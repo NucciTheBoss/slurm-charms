@@ -24,3 +24,5 @@ on:
 jobs:
   publish:
     uses: canonical/hpc-team/.github/workflows/publish-monorepo-python-packages.yaml@main
+    secrets:
+      PYPI_PUBLISH_TOKEN: ${{ secrets.PYPI_PUBLISH_TOKEN }}
