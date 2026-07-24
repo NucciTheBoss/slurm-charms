@@ -1,23 +1,46 @@
-# Copyright 2020-2024 Omnivector, LLC.
-# See LICENSE file for licensing details.
+# Copyright 2025-2026 Vantage Compute Corporation
+# Copyright 2020-2024 Omnivector, LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 name: slurmrestd
-summary: |
-  Interface to Slurm via REST API.
+summary: >
+  Charmed operator for slurmrestd
 description: |
-  This charm provides slurmrestd and the bindings to other utilities
-  that make lifecycle operations a breeze.
+  As part of Charmed HPC, this charm deploys and manages slurmrestd, the Slurm
+  REST API daemon. slurmrestd provides a REST API interface to Slurm, enabling
+  programmatic access to cluster management, job submission, and monitoring
+  functionality.
 
-  slurmrestd is a REST API interface for SLURM.
+  This charm integrates with the slurmctld charm to expose Slurm's
+  functionality through a RESTful HTTP API.
+
+  See the following how-to in Charmed HPC's documentation for more information about
+  how the slurmrestd charm is used in Charmed HPC:
+
+  - [How to deploy Slurm](https://ubuntu.com/hpc/docs/latest/howto/deploy/deploy-slurm)
+
+  For more information about Charmed HPC, view the
+  [full documentation](https://ubuntu.com/hpc/docs/latest).
 
 links:
   contact: https://matrix.to/#/#hpc:ubuntu.com
-
+  documentation: https://ubuntu.com/hpc/docs/latest
   issues:
     - https://github.com/canonical/slurm-charms/issues
-
   source:
     - https://github.com/canonical/slurm-charms
+  website: https://ubuntu.com/hpc
 
 assumes:
   - juju
