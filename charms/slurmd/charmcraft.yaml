@@ -14,21 +14,34 @@
 # limitations under the License.
 
 name: slurmd
-summary: |
-  Slurmd, the compute node daemon of Slurm.
+summary: >
+  Charmed operator for slurmd
 description: |
-  This charm provides slurmd and the bindings to other utilities
-  that make lifecycle operations a breeze.
+  As part of Charmed HPC, this charm deploys and manages slurmd,
+  the compute node daemon of Slurm. slurmd monitors all tasks running on
+  the compute node, accepts work (tasks), launches tasks, and kills running
+  tasks upon request.
 
-  slurmd is the compute node daemon of SLURM. It monitors all tasks running
-  on the compute node, accepts work (tasks), launches tasks, and kills
-  running tasks upon request.
+  This charm integrates with the slurmctld charm to register compute nodes
+  as Slurm partitions and automates node configuration management.
+
+  See the following how-tos in Charmed HPC's documentation for more information about
+  how the slurmd charm is used in Charmed HPC:
+
+  - [How to deploy Slurm](https://ubuntu.com/hpc/docs/latest/howto/deploy/deploy-slurm)
+  - [How to manage Slurm](https://ubuntu.com/hpc/docs/latest/howto/manage/manage-slurm)
+
+  For more information about Charmed HPC, view the
+  [full documentation](https://ubuntu.com/hpc/docs/latest).
+
 links:
   contact: https://matrix.to/#/#hpc:ubuntu.com
+  documentation: https://ubuntu.com/hpc/docs/latest
   issues:
     - https://github.com/canonical/slurm-charms/issues
   source:
     - https://github.com/canonical/slurm-charms
+  website: https://ubuntu.com/hpc
 
 assumes:
   - juju
