@@ -14,24 +14,38 @@
 # limitations under the License.
 
 name: slurmctld
-summary: |
-  Slurmctld, the central management daemon of Slurm.
+summary: >
+  Charmed operator for slurmctld
 description: |
-  This charm provides slurmctld and the bindings to other utilities
-  that make lifecycle operations a breeze.
+  As part of Charmed HPC, this charm deploys and manages slurmctld, the central
+  management daemon of Slurm. slurmctld monitors all other Slurm daemons and
+  resources, accepts work (jobs), and allocates resources to those jobs. A backup
+  slurmctld server can be deployed to assume management functions in the
+  event that the primary server fails.
 
-  slurmctld is the central management daemon of SLURM. It monitors all other
-  SLURM daemons and resources, accepts work (jobs), and allocates resources
-  to those jobs.  Given the critical functionality of slurmctld, there may be
-  a backup server to assume these functions in the event that the primary
-  server fails.
+  This charm integrates with the other Slurm charms to automate lifecycle
+  operations such as configuration management, authentication key rotation,
+  and compute node state management.
+
+  See the following how-tos and explanations in Charmed HPC's documentation for more
+  information about how the slurmctld charm is used in Charmed HPC:
+
+  - [How to deploy Slurm](https://ubuntu.com/hpc/docs/latest/howto/deploy/deploy-slurm)
+  - [How to manage Slurm](https://ubuntu.com/hpc/docs/latest/howto/manage/manage-slurm)
+  - [Explanation of slurmctld's high-availability implementation](https://ubuntu.com/hpc/docs/latest/explanation/high-availability)
+  - [Explanation of slurmctld's key rotation implementation](https://ubuntu.com/hpc/docs/latest/explanation/key-rotation)
+
+  For more information about Charmed HPC, view the
+  [full documentation](https://ubuntu.com/hpc/docs/latest).
 
 links:
   contact: https://matrix.to/#/#hpc:ubuntu.com
+  documentation: https://ubuntu.com/hpc/docs/latest
   issues:
     - https://github.com/canonical/slurm-charms/issues
   source:
     - https://github.com/canonical/slurm-charms
+  website: https://ubuntu.com/hpc
 
 requires:
   slurmd:
