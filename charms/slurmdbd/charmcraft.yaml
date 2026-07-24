@@ -14,21 +14,33 @@
 # limitations under the License.
 
 name: slurmdbd
-summary: |
-  Slurm DBD accounting daemon.
+summary: >
+  Charmed operator for slurmdbd
 description: |
-  This charm provides slurmdbd and the bindings to other utilities
-  that make lifecycle operations a breeze.
+  As part of Charmed HPC, this charm deploys and manages slurmdbd, the Slurm database
+  daemon. slurmdbd provides a secure enterprise-wide interface to a
+  database for Slurm, enabling job accounting and archival of accounting
+  records.
 
-  slurmdbd provides a secure enterprise-wide interface to a database for
-  SLURM. This is particularly useful for archiving accounting records.
+  This charm integrates with a MySQL database or router to store accounting data and
+  exposes this data to slurmctld for job and resource tracking.
+
+  See the following how-to in Charmed HPC's documentation for more information about
+  how the slurmdbd charm is used in Charmed HPC:
+
+  - [How to deploy Slurm](https://ubuntu.com/hpc/docs/latest/howto/deploy/deploy-slurm)
+
+  For more information about Charmed HPC, view the
+  [full documentation](https://ubuntu.com/hpc/docs/latest).
 
 links:
   contact: https://matrix.to/#/#hpc:ubuntu.com
+  documentation: https://ubuntu.com/hpc/docs/latest
   issues:
     - https://github.com/canonical/slurm-charms/issues
   source:
     - https://github.com/canonical/slurm-charms
+  website: https://ubuntu.com/hpc
 
 requires:
   database:
