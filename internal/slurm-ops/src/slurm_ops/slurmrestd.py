@@ -24,12 +24,12 @@ from slurm_ops.core import SLURMRESTD_GROUP, SLURMRESTD_USER, SlurmConfigManager
 class SlurmrestdManager(SlurmManager):
     """Manage Slurm's REST API service, `slurmrestd`."""
 
-    def __init__(self, snap: bool = False) -> None:
-        super().__init__("slurmrestd", snap)
+    def __init__(self) -> None:
+        super().__init__("slurmrestd")
 
         self.config = SlurmConfigManager(
             SlurmConfigEditor,
-            file=self._ops_manager.etc_path / "slurm.conf",
+            file=self.etc_path / "slurm.conf",
             mode=0o644,
             user=self.user,
             group=self.group,

@@ -27,8 +27,6 @@ from constants import (
     JWT_KEY,
     SCONTROL_SHOW_NODE_OUTPUT,
     SLURM_KEY_CONTENTS,
-    SLURM_SNAP_INFO_ACTIVE,
-    SLURM_SNAP_INFO_INACTIVE,
     SLURMD_C_OUTPUT,
 )
 from dotenv import dotenv_values
@@ -42,13 +40,8 @@ from slurmutils import Node
 class TestManager:
     """Test Slurm service manager classes."""
 
-    @pytest.fixture(params=[True, False], ids=["apt backend", "snap backend"], scope="class")
-    def snap_backend(self, request) -> bool:
-        """Control whether to use the SlurmManager's `snap` or `apt` backend."""
-        return request.param
-
     @pytest.fixture(scope="class")
-    def mock_manager(self, request, snap_backend) -> tuple[SlurmManager, str]:
+    def mock_manager(self) -> tuple[SlurmManager, str]:
         """Request a mocked Slurm service manager and service name."""
 
         class MockSlurmManager(SlurmManager):
@@ -60,18 +53,12 @@ class TestManager:
             def group(self) -> str:
                 return "slurm"
 
-        return MockSlurmManager("sackd", snap=snap_backend), "sackd"
+        return MockSlurmManager("sackd"), "sackd"
 
     @pytest.fixture
-    def mock_slurm_key(self, fs: FakeFilesystem, mock_manager, snap_backend) -> SlurmManager:
+    def mock_slurm_key(self, fs: FakeFilesystem, mock_manager) -> SlurmManager:
         """Request a Slurm service manager with a fake Slurm auth key file."""
-        if snap_backend:
-            fs.create_file(
-                "/var/snap/slurm/common/etc/slurm/slurm.jwks",
-                contents=json.dumps(SLURM_KEY_CONTENTS),
-            )
-        else:
-            fs.create_file("/etc/slurm/slurm.jwks", contents=json.dumps(SLURM_KEY_CONTENTS))
+        fs.create_file("/etc/slurm/slurm.jwks", contents=json.dumps(SLURM_KEY_CONTENTS))
 
         manager, _ = mock_manager
         manager.key._user = FAKE_USER
@@ -79,12 +66,9 @@ class TestManager:
         return manager
 
     @pytest.fixture
-    def mock_jwt_key(self, fs: FakeFilesystem, mock_manager, snap_backend) -> SlurmManager:
+    def mock_jwt_key(self, fs: FakeFilesystem, mock_manager) -> SlurmManager:
         """Request a Slurm service manager with a fake `jwt_hs256.key` secret file."""
-        if snap_backend:
-            fs.create_file("/var/snap/slurm/common/etc/slurm/jwt_hs256.key")
-        else:
-            fs.create_file("/etc/slurm/jwt_hs256.key")
+        fs.create_file("/etc/slurm/jwt_hs256.key")
 
         manager, _ = mock_manager
         manager.jwt._user = FAKE_USER
@@ -94,55 +78,40 @@ class TestManager:
 
     # Test `<manager>.service` component.
 
-    def test_service_start(self, mock_manager, mock_run, snap_backend) -> None:
+    def test_service_start(self, mock_manager, mock_run) -> None:
         """Test the `<manager>.service.start()` method."""
         manager, service = mock_manager
 
         manager.service.start()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "start", f"slurm.{service}"]
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "start", service]
+        assert mock_run.call_args[0][0] == ["systemctl", "start", service]
 
-    def test_service_stop(self, mock_manager, mock_run, snap_backend) -> None:
+    def test_service_stop(self, mock_manager, mock_run) -> None:
         """Test the `<manager>.service.stop()` method."""
         manager, service = mock_manager
 
         manager.service.stop()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "stop", f"slurm.{service}"]
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "stop", service]
+        assert mock_run.call_args[0][0] == ["systemctl", "stop", service]
 
-    def test_service_enable(self, mock_manager, mock_run, snap_backend) -> None:
+    def test_service_enable(self, mock_manager, mock_run) -> None:
         """Test the `<manager>.service.enable()` method."""
         manager, service = mock_manager
 
         manager.service.enable()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "start", "--enable", f"slurm.{service}"]
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "enable", service]
+        assert mock_run.call_args[0][0] == ["systemctl", "enable", service]
 
-    def test_service_disable(self, mock_manager, mock_run, snap_backend) -> None:
+    def test_service_disable(self, mock_manager, mock_run) -> None:
         """Test the `<manager>.service.disable()` method."""
         manager, service = mock_manager
 
         manager.service.disable()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "stop", "--disable", f"slurm.{service}"]
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "disable", service]
+        assert mock_run.call_args[0][0] == ["systemctl", "disable", service]
 
-    def test_service_restart(self, mock_manager, mock_run, snap_backend) -> None:
+    def test_service_restart(self, mock_manager, mock_run) -> None:
         """Test the `<manager>.service.restart()` method."""
         manager, service = mock_manager
 
         manager.service.restart()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "restart", f"slurm.{service}"]
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "restart", service]
+        assert mock_run.call_args[0][0] == ["systemctl", "restart", service]
 
     @pytest.mark.parametrize(
         "active",
@@ -151,30 +120,19 @@ class TestManager:
             pytest.param(False, id="not active"),
         ),
     )
-    def test_service_is_active(self, mock_manager, mock_run, snap_backend, active) -> None:
+    def test_service_is_active(self, mock_manager, mock_run, active) -> None:
         """Test the `<manager>.service.is_active()` method."""
         manager, service = mock_manager
 
-        if snap_backend:
-            mock_run.return_value = (
-                subprocess.CompletedProcess([], returncode=0, stdout=SLURM_SNAP_INFO_ACTIVE)
-                if active
-                else subprocess.CompletedProcess([], returncode=0, stdout=SLURM_SNAP_INFO_INACTIVE)
-            )
-        else:
-            mock_run.return_value = (
-                subprocess.CompletedProcess([], returncode=0)
-                if active
-                else subprocess.CompletedProcess([], returncode=4)
-            )
+        mock_run.return_value = (
+            subprocess.CompletedProcess([], returncode=0)
+            if active
+            else subprocess.CompletedProcess([], returncode=4)
+        )
 
         status = manager.service.is_active()
-        if snap_backend:
-            assert mock_run.call_args[0][0] == ["snap", "info", "slurm"]
-            assert status == active
-        else:
-            assert mock_run.call_args[0][0] == ["systemctl", "is-active", "--quiet", service]
-            assert status == active
+        assert mock_run.call_args[0][0] == ["systemctl", "is-active", "--quiet", service]
+        assert status == active
 
     # Test auth key component.
 

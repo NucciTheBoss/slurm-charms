@@ -35,8 +35,8 @@ _logger = logging.getLogger(__name__)
 class SlurmdManager(SlurmManager):
     """Manage Slurm's compute service, `slurmd`."""
 
-    def __init__(self, partition_name: str, *, snap: bool = False) -> None:
-        super().__init__("slurmd", snap)
+    def __init__(self, partition_name: str) -> None:
+        super().__init__("slurmd")
         self._partition_name = partition_name
 
     @property

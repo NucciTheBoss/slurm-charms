@@ -35,19 +35,14 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
-import yaml
-from charmed_hpc_libs.errors import SnapError, SystemdError
+from charmed_hpc_libs.errors import AptError, SystemdError
 from charmed_hpc_libs.ops import (
+    AptLifecycleManager,
     EnvManager,
     NodeExporterManager,
-    ServiceManager,
-    SnapServiceManager,
-    SystemctlServiceManager,
     call,
-    snap,
     systemctl,
 )
-from charmlibs import apt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -57,36 +52,13 @@ from .options import marshal_options, parse_options
 _logger = logging.getLogger(__name__)
 
 
-class OpsManager(Protocol):  # pragma: no cover
-    """Protocol for defining Slurm operation managers."""
-
-    def service_manager_for(self, service: str) -> ServiceManager:  # noqa D102
-        raise NotImplementedError
-
-    def env_manager_for(self, service: str) -> EnvManager:  # noqa D102
-        raise NotImplementedError
-
-    def install(self) -> None:  # noqa D102
-        raise NotImplementedError
-
-    def version(self) -> str:  # noqa D102
-        raise NotImplementedError
-
-    def is_installed(self) -> bool:
-        """Check if Slurm is installed."""
-        try:
-            self.version()
-            return True
-        except SlurmOpsError:
-            return False
-
-    @property
-    def etc_path(self) -> Path:  # noqa D102
-        raise NotImplementedError
-
-    @property
-    def var_lib_path(self) -> Path:  # noqa D102
-        raise NotImplementedError
+_ADDITIONAL_SLURM_PACKAGES: dict[str, list[str]] = {
+    "sackd": ["slurm-client"],
+    "slurmctld": ["libpmix-dev"],
+    "slurmd": ["slurm-client", "libpmix-dev", "openmpi-bin"],
+    "slurmrestd": ["slurm-wlm-basic-plugins"],
+}
+"""Additional `apt` packages required by each Slurm service beyond the primary package."""
 
 
 class SecretManager(Protocol):  # pragma: no cover
@@ -110,308 +82,6 @@ class SecretManager(Protocol):  # pragma: no cover
         raise NotImplementedError
 
 
-class _AptManager(OpsManager):
-    """Operations manager for the Slurm Debian package backend.
-
-    Notes:
-        This manager provides some environment variables that are automatically passed to the
-        services with a systemctl override file. If you need to override the ExecStart parameter,
-        ensure the new command correctly passes the environment variable to the command.
-    """
-
-    def __init__(self, service: str, /) -> None:
-        self._service_name = service
-
-    def service_manager_for(self, service: str) -> SystemctlServiceManager:
-        """Return the `ServiceManager` for the specified `ServiceType`."""
-        return SystemctlServiceManager(service)
-
-    def env_manager_for(self, service: str) -> EnvManager:
-        """Return the `_EnvManager` for the specified `ServiceType`."""
-        return EnvManager(file=f"/etc/default/{service}")
-
-    def install(self) -> None:
-        """Install Slurm using the `slurm-wlm` Debian package set."""
-        self._install_service()
-        self._create_state_save_location()
-        self._apply_overrides()
-
-    def version(self) -> str:
-        """Get the current version of Slurm installed on the system."""
-        try:
-            return apt.DebianPackage.from_installed_package(self._service_name).version.number
-        except apt.PackageNotFoundError as e:
-            raise SlurmOpsError(f"unable to retrieve {self._service_name} version. reason: {e}")
-
-    @property
-    def etc_path(self) -> Path:
-        """Get the path to the Slurm configuration directory."""
-        return Path("/etc/slurm")
-
-    @property
-    def var_lib_path(self) -> Path:
-        """Get the path to the Slurm variable state data directory."""
-        return Path("/var/lib/slurm")
-
-    @staticmethod
-    def _set_ulimit() -> None:
-        """Set `ulimit` on nodes that need to be able to open many files at once."""
-        ulimit_config_file = Path("/etc/security/limits.d/20-charmed-hpc-openfile.conf")
-        ulimit_config = textwrap.dedent("""
-            * soft nofile  1048576
-            * hard nofile  1048576
-            * soft memlock unlimited
-            * hard memlock unlimited
-            * soft stack unlimited
-            * hard stack unlimited
-            """)
-        _logger.debug("setting ulimit configuration for node to:\n%s", ulimit_config)
-        ulimit_config_file.write_text(ulimit_config)
-        ulimit_config_file.chmod(0o644)
-
-    def _install_service(self) -> None:
-        """Install Slurm service and other necessary packages.
-
-        Raises:
-            SlurmOpsError: Raised if `apt` fails to install the required Slurm packages.
-        """
-        packages = [self._service_name]
-        match self._service_name:
-            case "sackd":
-                packages.extend(["slurm-client"])
-            case "slurmctld":
-                packages.extend(["libpmix-dev"])
-            case "slurmd":
-                packages.extend(["slurm-client", "libpmix-dev", "openmpi-bin"])
-            case "slurmrestd":
-                packages.extend(["slurm-wlm-basic-plugins"])
-            case _:
-                _logger.debug(
-                    "'%s' does not require any additional packages to be installed",
-                    self._service_name,
-                )
-
-        _logger.debug("installing packages %s with apt", packages)
-        try:
-            apt.update()
-            apt.add_package(packages)
-        except (apt.PackageNotFoundError, apt.PackageError) as e:
-            raise SlurmOpsError(f"failed to install {self._service_name}. reason: {e}")
-
-    def _create_state_save_location(self) -> None:
-        """Create `StateSaveLocation` for Slurm services.
-
-        Notes:
-            `StateSaveLocation` is used by slurmctld, slurmd, and slurmdbd
-            to checkpoint runtime information should a service crash, and it
-            serves as the location where the JWT token used to generate user
-            access tokens is stored as well.
-        """
-        _logger.debug("creating slurm `StateSaveLocation` directory")
-        target = self.var_lib_path / "checkpoint"
-        target.mkdir(mode=0o755, parents=True, exist_ok=True)
-        self.var_lib_path.chmod(0o755)
-        shutil.chown(self.var_lib_path, "slurm", "slurm")
-        shutil.chown(target, "slurm", "slurm")
-
-    def _apply_overrides(self) -> None:
-        """Override defaults supplied provided by Slurm Debian packages."""
-        match self._service_name:
-            case "sackd":
-                _logger.debug("overriding default sackd service configuration")
-                sackd_restart_override = Path(
-                    "/etc/systemd/system/sackd.service.d/10-charmed-hpc.conf"
-                )
-                sackd_restart_override.parent.mkdir(exist_ok=True, parents=True)
-                sackd_restart_override.write_text(
-                    textwrap.dedent("""
-                        [Unit]
-                        StartLimitIntervalSec=90
-                        StartLimitBurst=10
-                        [Service]
-                        Restart=on-failure
-                        RestartSec=10
-                        """)
-                )
-                # TODO: https://github.com/canonical/charmed-hpc-libs/issues/54 -
-                #   Make `sackd` create its service environment file so that we
-                #   aren't required to manually create it here.
-                _logger.debug("creating sackd environment file")
-                self.env_manager_for("sackd").path.touch(mode=0o644, exist_ok=True)
-            case "slurmctld":
-                _logger.debug("overriding default slurmctld service configuration")
-                self._set_ulimit()
-
-                nofile_override = Path(
-                    "/etc/systemd/system/slurmctld.service.d/10-charmed-hpc.conf"
-                )
-                nofile_override.parent.mkdir(exist_ok=True, parents=True)
-                nofile_override.write_text(
-                    textwrap.dedent("""
-                        [Service]
-                        LimitMEMLOCK=infinity
-                        LimitNOFILE=1048576
-                        Restart=on-failure
-                        RestartSec=10
-                        """)
-                )
-                systemctl("disable", "--now", "munge")
-            case "slurmd":
-                _logger.debug("overriding default slurmd service configuration")
-                self._set_ulimit()
-
-                nofile_override = Path("/etc/systemd/system/slurmd.service.d/10-charmed-hpc.conf")
-                nofile_override.parent.mkdir(exist_ok=True, parents=True)
-                nofile_override.write_text(
-                    textwrap.dedent("""
-                        [Unit]
-                        StartLimitIntervalSec=90
-                        StartLimitBurst=10
-
-                        [Service]
-                        LimitMEMLOCK=infinity
-                        LimitNOFILE=1048576
-                        Restart=on-failure
-                        RestartSec=10
-                        """)
-                )
-
-                systemctl("disable", "--now", "munge")
-            case "slurmrestd":
-                # TODO: https://github.com/canonical/charmed-hpc-libs/issues/39 -
-                #   Make `slurmrestd` package preinst hook create the system user and group
-                #   so that we do not need to do it manually here.
-                _logger.debug("creating slurmrestd user and group")
-                result = call("groupadd", "--gid", "64031", "slurmrestd", check=False)
-                if result.returncode == 9:
-                    _logger.debug("group 'slurmrestd' already exists")
-                elif result.returncode != 0:
-                    SlurmOpsError(f"failed to create group 'slurmrestd'. stderr: {result.stderr}")
-
-                result = call(
-                    "adduser",
-                    "--system",
-                    "--group",
-                    "--uid",
-                    "64031",
-                    "--no-create-home",
-                    "--home",
-                    "/nonexistent",
-                    "slurmrestd",
-                    check=False,
-                )
-                if result.returncode == 9:
-                    _logger.debug("user 'slurmrestd' already exists")
-                elif result.returncode != 0:
-                    raise SlurmOpsError(
-                        f"failed to create user 'slurmrestd'. stderr: {result.stderr}"
-                    )
-
-                # slurmrestd's preinst script does not create environment file.
-                _logger.debug("creating slurmrestd environment file")
-                Path("/etc/default/slurmrestd").touch(mode=0o644)
-
-                _logger.debug("overriding default slurmrestd service configuration")
-                config_override = Path("/usr/lib/systemd/system/slurmrestd.service")
-                config_override.write_text(
-                    textwrap.dedent("""
-                        [Unit]
-                        Description=Slurm REST daemon
-                        After=network.target slurmctld.service
-                        ConditionPathExists=/etc/slurm/slurm.conf
-                        Documentation=man:slurmrestd(8)
-
-                        [Service]
-                        Type=simple
-                        EnvironmentFile=-/etc/default/slurmrestd
-                        Environment="SLURM_JWT=daemon"
-                        ExecStart=/usr/sbin/slurmrestd $SLURMRESTD_OPTIONS -vv 0.0.0.0:6820
-                        ExecReload=/bin/kill -HUP $MAINPID
-                        User=slurmrestd
-                        Group=slurmrestd
-
-                        # Restart service if failed
-                        Restart=on-failure
-                        RestartSec=30s
-
-                        [Install]
-                        WantedBy=multi-user.target
-                        """)
-                )
-            case _:
-                _logger.debug("'%s' does not require any overrides", self._service_name)
-
-        systemctl("daemon-reload")
-
-
-class _SnapManager(OpsManager):
-    """Operations manager for the Slurm snap backend."""
-
-    def service_manager_for(self, service: str) -> SnapServiceManager:
-        """Return the `ServiceManager` for the specified `ServiceType`."""
-        return SnapServiceManager(service, snap="slurm")
-
-    def env_manager_for(self, service: str) -> EnvManager:
-        """Return the `_EnvManager` for the specified `ServiceType`."""
-        return EnvManager(file="/var/snap/slurm/common/.env")
-
-    def install(self) -> None:
-        """Install Slurm using the `slurm` snap."""
-        snap("install", "slurm", "--channel", "23.11/stable", "--classic")
-        self._create_state_save_location()
-        self._apply_overrides()
-
-    def is_installed(self) -> bool:
-        """Check if the Slurm snap is installed."""
-        try:
-            self.version()
-            return True
-        except SlurmOpsError:
-            return False
-
-    def version(self) -> str:
-        """Get the current version of the `slurm` snap installed on the system."""
-        info = yaml.safe_load(snap("info", "slurm")[0])
-        version = info.get("installed")
-        if version is None:
-            raise SlurmOpsError(
-                "unable to retrieve snap info. ensure slurm is correctly installed"
-            )
-
-        return version.split(maxsplit=1)[0]
-
-    @property
-    def etc_path(self) -> Path:
-        """Get the path to the Slurm configuration directory."""
-        return Path("/var/snap/slurm/common/etc/slurm")
-
-    @property
-    def var_lib_path(self) -> Path:
-        """Get the path to the Slurm variable state data directory."""
-        return Path("/var/snap/slurm/common/var/lib/slurm")
-
-    def _create_state_save_location(self) -> None:
-        """Create `StateSaveLocation` for Slurm services.
-
-        Notes:
-            `StateSaveLocation` is used by slurmctld, slurmd, and slurmdbd
-            to checkpoint runtime information should a service crash, and it
-            serves as the location where the JWT token used to generate user
-            access tokens is stored as well.
-        """
-        _logger.debug("creating slurm `StateSaveLocation` directory")
-        target = self.var_lib_path / "checkpoint"
-        target.mkdir(mode=0o755, parents=True, exist_ok=True)
-        self.var_lib_path.chmod(0o755)
-        shutil.chown(self.var_lib_path, "slurm", "slurm")
-        shutil.chown(target, "slurm", "slurm")
-
-    @staticmethod
-    def _apply_overrides() -> None:
-        """Override defaults provided by the Slurm snap."""
-        snap("stop", "--disable", "slurm.munged")
-
-
 # TODO: https://github.com/canonical/charmed-hpc-libs/issues/36 -
 #   Use `jwtctl` to provide backend for generating, setting, and getting
 #   jwt signing key used by `slurmctld` and `slurmdbd`. This way we also
@@ -421,15 +91,15 @@ class _SnapManager(OpsManager):
 class _JWTSecretManager(SecretManager):
     """Manage the `jwt_hs256.key` secret file."""
 
-    def __init__(self, ops_manager: OpsManager, /, user: str, group: str) -> None:
+    def __init__(self, manager: SlurmManager, /, user: str, group: str) -> None:
         """Initialize the JWT secret manager.
 
         Args:
-            ops_manager: The operations manager for the Slurm backend.
+            manager: The operations manager for the Slurm backend.
             user: The system user that owns the key.
             group: The system group that owns the key.
         """
-        self._file = ops_manager.etc_path / "jwt_hs256.key"
+        self._file = manager.etc_path / "jwt_hs256.key"
         self._user = user
         self._group = group
 
@@ -511,15 +181,15 @@ class _JWTSecretManager(SecretManager):
 class _SlurmSecretManager(SecretManager):
     """Manage the `slurm.jwks` key file."""
 
-    def __init__(self, ops_manager: OpsManager, /, user: str, group: str) -> None:
+    def __init__(self, manager: SlurmManager, /, user: str, group: str) -> None:
         """Initialize the Slurm auth key secret manager.
 
         Args:
-            ops_manager: The operations manager for the Slurm backend.
+            manager: Instance of the Slurm service operations manager.
             user: The system user that owns the key.
             group: The system group that owns the key.
         """
-        self._file = ops_manager.etc_path / "slurm.jwks"
+        self._file = manager.etc_path / "slurm.jwks"
         self._user = user
         self._group = group
 
@@ -676,30 +346,21 @@ class _SlurmSecretManager(SecretManager):
         }
 
 
-class SlurmManager(ABC):
+class SlurmManager(ABC, AptLifecycleManager):
     """Base class for composing Slurm service managers."""
 
-    def __init__(self, service: str, snap: bool = False) -> None:
+    def __init__(self, service: str) -> None:
+        super().__init__(service, additional_packages=_ADDITIONAL_SLURM_PACKAGES.get(service, []))
         self._service = service
-        self._ops_manager = _SnapManager() if snap else _AptManager(service)
-        self._env_manager = self._ops_manager.env_manager_for(service)
+        self._env_manager = EnvManager(file=f"/etc/default/{service}")
 
         self.service = self._ops_manager.service_manager_for(service)
-        self.key = _SlurmSecretManager(self._ops_manager, user=self.user, group=self.group)
-        self.jwt = _JWTSecretManager(self._ops_manager, user=self.user, group=self.group)
-        self.install = self._ops_manager.install
-        self.is_installed = self._ops_manager.is_installed
-        self.version = self._ops_manager.version
-
-    @property
-    def hostname(self) -> str:
-        """Get the hostname of the machine the managed Slurm service is running on."""
-        return socket.gethostname().split(".")[0]
-
-    @cached_property
-    def node_exporter(self) -> NodeExporterManager:
-        """Get the `node-exporter` lifecycle manager."""
-        return NodeExporterManager()
+        self.key = _SlurmSecretManager(self, user=self.user, group=self.group)
+        self.jwt = _JWTSecretManager(self, user=self.user, group=self.group)
+        # `AptLifecycleManager` binds `install` to the underlying `AptOpsManager` method as an
+        # instance attribute, which would shadow the `install` method defined below. Remove it so
+        # the Slurm-specific `install` method is used instead.
+        del self.install
 
     @property
     @abstractmethod
@@ -711,6 +372,43 @@ class SlurmManager(ABC):
     def group(self) -> str:  # noqa D102  # pragma: no cover
         raise NotImplementedError
 
+    @cached_property
+    def node_exporter(self) -> NodeExporterManager:
+        """Get the `node-exporter` lifecycle manager."""
+        return NodeExporterManager()
+
+    @property
+    def hostname(self) -> str:
+        """Get the hostname of the machine the managed Slurm service is running on."""
+        return socket.gethostname().split(".")[0]
+
+    @property
+    def etc_path(self) -> Path:
+        """Get the path to the Slurm configuration directory."""
+        return Path("/etc/slurm")
+
+    @property
+    def var_lib_path(self) -> Path:
+        """Get the path to the Slurm variable state data directory."""
+        return Path("/var/lib/slurm")
+
+    def install(self, *, update: bool = True) -> None:
+        """Install the Slurm service and apply Slurm-specific post-install configuration.
+
+        Args:
+            update: If `True`, update the `apt` cache before installing packages.
+
+        Raises:
+            SlurmOpsError: Raised if the `apt` install or post-install configuration fails.
+        """
+        try:
+            self._ops_manager.install(update=update)
+        except AptError as e:
+            raise SlurmOpsError(f"failed to install {self._service}. reason: {e}") from e
+
+        self._create_state_save_location()
+        self._apply_overrides()
+
     def reconfigure(self) -> None:
         """Reconfigure the managed Slurm service.
 
@@ -720,8 +418,170 @@ class SlurmManager(ABC):
         try:
             self.service.enable()
             self.service.restart()
-        except (SystemdError, SnapError) as e:
+        except SystemdError as e:
             raise SlurmOpsError(f"failed to reconfigure Slurm service '{self._service}'") from e
+
+    def _set_ulimit(self) -> None:
+        """Set `ulimit` on nodes that need to be able to open many files at once."""
+        ulimit_config_file = Path("/etc/security/limits.d/20-charmed-hpc-openfile.conf")
+        ulimit_config = textwrap.dedent("""
+            * soft nofile  1048576
+            * hard nofile  1048576
+            * soft memlock unlimited
+            * hard memlock unlimited
+            * soft stack unlimited
+            * hard stack unlimited
+            """)
+        _logger.debug("setting ulimit configuration for node to:\n%s", ulimit_config)
+        ulimit_config_file.write_text(ulimit_config)
+        ulimit_config_file.chmod(0o644)
+
+    def _create_state_save_location(self) -> None:
+        """Create `StateSaveLocation` for Slurm services.
+
+        Notes:
+            `StateSaveLocation` is used by slurmctld, slurmd, and slurmdbd
+            to checkpoint runtime information should a service crash, and it
+            serves as the location where the JWT token used to generate user
+            access tokens is stored as well.
+        """
+        _logger.debug("creating slurm `StateSaveLocation` directory")
+        target = self.var_lib_path / "checkpoint"
+        target.mkdir(mode=0o755, parents=True, exist_ok=True)
+        self.var_lib_path.chmod(0o755)
+        shutil.chown(self.var_lib_path, "slurm", "slurm")
+        shutil.chown(target, "slurm", "slurm")
+
+    def _apply_overrides(self) -> None:
+        """Override defaults supplied provided by Slurm Debian packages."""
+        match self._service:
+            case "sackd":
+                _logger.debug("overriding default sackd service configuration")
+                sackd_restart_override = Path(
+                    "/etc/systemd/system/sackd.service.d/10-charmed-hpc.conf"
+                )
+                sackd_restart_override.parent.mkdir(exist_ok=True, parents=True)
+                sackd_restart_override.write_text(
+                    textwrap.dedent("""
+                        [Unit]
+                        StartLimitIntervalSec=90
+                        StartLimitBurst=10
+                        [Service]
+                        Restart=on-failure
+                        RestartSec=10
+                        """)
+                )
+                # TODO: https://github.com/canonical/charmed-hpc-libs/issues/54 -
+                #   Make `sackd` create its service environment file so that we
+                #   aren't required to manually create it here.
+                _logger.debug("creating sackd environment file")
+                self._env_manager.path.touch(mode=0o644, exist_ok=True)
+            case "slurmctld":
+                _logger.debug("overriding default slurmctld service configuration")
+                self._set_ulimit()
+
+                nofile_override = Path(
+                    "/etc/systemd/system/slurmctld.service.d/10-charmed-hpc.conf"
+                )
+                nofile_override.parent.mkdir(exist_ok=True, parents=True)
+                nofile_override.write_text(
+                    textwrap.dedent("""
+                        [Service]
+                        LimitMEMLOCK=infinity
+                        LimitNOFILE=1048576
+                        Restart=on-failure
+                        RestartSec=10
+                        """)
+                )
+                systemctl("disable", "--now", "munge")
+            case "slurmd":
+                _logger.debug("overriding default slurmd service configuration")
+                self._set_ulimit()
+
+                nofile_override = Path("/etc/systemd/system/slurmd.service.d/10-charmed-hpc.conf")
+                nofile_override.parent.mkdir(exist_ok=True, parents=True)
+                nofile_override.write_text(
+                    textwrap.dedent("""
+                        [Unit]
+                        StartLimitIntervalSec=90
+                        StartLimitBurst=10
+
+                        [Service]
+                        LimitMEMLOCK=infinity
+                        LimitNOFILE=1048576
+                        Restart=on-failure
+                        RestartSec=10
+                        """)
+                )
+
+                systemctl("disable", "--now", "munge")
+            case "slurmrestd":
+                # TODO: https://github.com/canonical/charmed-hpc-libs/issues/39 -
+                #   Make `slurmrestd` package preinst hook create the system user and group
+                #   so that we do not need to do it manually here.
+                _logger.debug("creating slurmrestd user and group")
+                result = call("groupadd", "--gid", "64031", "slurmrestd", check=False)
+                if result.returncode == 9:
+                    _logger.debug("group 'slurmrestd' already exists")
+                elif result.returncode != 0:
+                    raise SlurmOpsError(
+                        f"failed to create group 'slurmrestd'. stderr: {result.stderr}"
+                    )
+
+                result = call(
+                    "adduser",
+                    "--system",
+                    "--group",
+                    "--uid",
+                    "64031",
+                    "--no-create-home",
+                    "--home",
+                    "/nonexistent",
+                    "slurmrestd",
+                    check=False,
+                )
+                if result.returncode == 9:
+                    _logger.debug("user 'slurmrestd' already exists")
+                elif result.returncode != 0:
+                    raise SlurmOpsError(
+                        f"failed to create user 'slurmrestd'. stderr: {result.stderr}"
+                    )
+
+                # slurmrestd's preinst script does not create environment file.
+                _logger.debug("creating slurmrestd environment file")
+                Path("/etc/default/slurmrestd").touch(mode=0o644)
+
+                _logger.debug("overriding default slurmrestd service configuration")
+                config_override = Path("/usr/lib/systemd/system/slurmrestd.service")
+                config_override.write_text(
+                    textwrap.dedent("""
+                        [Unit]
+                        Description=Slurm REST daemon
+                        After=network.target slurmctld.service
+                        ConditionPathExists=/etc/slurm/slurm.conf
+                        Documentation=man:slurmrestd(8)
+
+                        [Service]
+                        Type=simple
+                        EnvironmentFile=-/etc/default/slurmrestd
+                        Environment="SLURM_JWT=daemon"
+                        ExecStart=/usr/sbin/slurmrestd $SLURMRESTD_OPTIONS -vv 0.0.0.0:6820
+                        ExecReload=/bin/kill -HUP $MAINPID
+                        User=slurmrestd
+                        Group=slurmrestd
+
+                        # Restart service if failed
+                        Restart=on-failure
+                        RestartSec=30s
+
+                        [Install]
+                        WantedBy=multi-user.target
+                        """)
+                )
+            case _:
+                _logger.debug("'%s' does not require any overrides", self._service)
+
+        systemctl("daemon-reload")
 
     @contextmanager
     def _edit_options(self) -> Iterator[dict[str, Any]]:

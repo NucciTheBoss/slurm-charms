@@ -56,7 +56,7 @@ class SlurmdbdCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework) -> None:
         super().__init__(framework)
 
-        self.slurmdbd = SlurmdbdManager(snap=False)
+        self.slurmdbd = SlurmdbdManager()
         try:
             self.configmgr = self.load_config(ConfigManager)
         except ValidationError as e:

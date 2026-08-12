@@ -17,8 +17,6 @@
 import grp
 import os
 import pwd
-import textwrap
-from string import Template
 
 # `pyfakefs` doesn't have the ability to create fake users and groups.
 FAKE_USER_UID = os.getuid()
@@ -66,88 +64,7 @@ cYJxcwKBgQCK+dW+F0UJTQq1rDxfI0rt6yuRnhtSdAq2+HbXNx/0nwdLQg7SubWe
 -----END RSA PRIVATE KEY-----
 """
 
-SLURM_APT_INFO = Template(
-    textwrap.dedent("""
-        Desired=Unknown/Install/Remove/Purge/Hold
-        | Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
-        |/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
-        ||/ Name           Version          Architecture Description
-        +++-==============-================-============-=================================
-        ii  $service       23.11.7-2ubuntu1 amd64        SLURM daemon
-        """)
-)
-
-SLURM_SNAP_INFO_ACTIVE = """
-name:      slurm
-summary:   "Slurm: A Highly Scalable Workload Manager"
-publisher: –
-store-url: https://snapcraft.io/slurm
-license:   Apache-2.0
-description: |
-    Slurm is an open source, fault-tolerant, and highly scalable cluster
-    management and job scheduling system for large and small Linux clusters.
-commands:
-    - slurm.command1
-    - slurm.command2
-services:
-    slurm.logrotate:                 oneshot, enabled, inactive
-    slurm.slurm-prometheus-exporter: simple, disabled, inactive
-    slurm.sackd:                     simple, disabled, active
-    slurm.slurmctld:                 simple, disabled, active
-    slurm.slurmd:                    simple, enabled, active
-    slurm.slurmdbd:                  simple, disabled, active
-    slurm.slurmrestd:                simple, disabled, active
-channels:
-    latest/stable:    –
-    latest/candidate: 23.11.7 2024-06-26 (460) 114MB classic
-    latest/beta:      ↑
-    latest/edge:      23.11.7 2024-06-26 (459) 114MB classic
-installed:          23.11.7             (x1) 114MB classic
-"""
-
-SLURM_SNAP_INFO_INACTIVE = """
-name:      slurm
-summary:   "Slurm: A Highly Scalable Workload Manager"
-publisher: –
-store-url: https://snapcraft.io/slurm
-license:   Apache-2.0
-description: |
-    Slurm is an open source, fault-tolerant, and highly scalable cluster
-    management and job scheduling system for large and small Linux clusters.
-commands:
-    - slurm.command1
-    - slurm.command2
-services:
-    slurm.logrotate:                 oneshot, enabled, inactive
-    slurm.slurm-prometheus-exporter: simple, disabled, inactive
-    slurm.sackd:                     simple, disabled, inactive
-    slurm.slurmctld:                 simple, disabled, inactive
-    slurm.slurmd:                    simple, enabled, inactive
-    slurm.slurmdbd:                  simple, disabled, inactive
-    slurm.slurmrestd:                simple, disabled, inactive
-channels:
-    latest/stable:    –
-    latest/candidate: 23.11.7 2024-06-26 (460) 114MB classic
-    latest/beta:      ↑
-    latest/edge:      23.11.7 2024-06-26 (459) 114MB classic
-installed:          23.11.7             (x1) 114MB classic
-"""
-
-SLURM_SNAP_INFO_NOT_INSTALLED = """
-name:      slurm
-summary:   "Slurm: A Highly Scalable Workload Manager"
-publisher: –
-store-url: https://snapcraft.io/slurm
-license:   Apache-2.0
-description: |
-    Slurm is an open source, fault-tolerant, and highly scalable cluster
-    management and job scheduling system for large and small Linux clusters.
-channels:
-    latest/stable:    –
-    latest/candidate: 23.11.7 2024-06-26 (460) 114MB classic
-    latest/beta:      ↑
-    latest/edge:      23.11.7 2024-06-26 (459) 114MB classic
-"""
+SLURM_VERSION = "23.11.7"
 
 ULIMIT_CONFIG = """
 * soft nofile  1048576

@@ -26,15 +26,15 @@ from slurm_ops.core import SLURM_GROUP, SLURM_USER, SlurmConfigManager, SlurmMan
 class SlurmdbdManager(SlurmManager):
     """Manage Slurm's database service, `slurmdbd`."""
 
-    def __init__(self, snap: bool = False) -> None:
-        super().__init__("slurmdbd", snap)
+    def __init__(self) -> None:
+        super().__init__("slurmdbd")
 
     @property
     def config(self) -> SlurmConfigManager:
         """Get the configuration manager for the `slurmdbd.conf` file."""
         return SlurmConfigManager(
             SlurmdbdConfigEditor,
-            file=self._ops_manager.etc_path / "slurmdbd.conf",
+            file=self.etc_path / "slurmdbd.conf",
             mode=0o600,
             user=self.user,
             group=self.group,
