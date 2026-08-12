@@ -28,9 +28,9 @@ def scontrol(*args: str, **kwargs: Any) -> tuple[str, int]:  # noqa D417
     """Control Slurm using `scontrol ...` commands.
 
     Keyword Args:
-        stdin: Standard input to pipe to the `snap` command.
+        stdin: Standard input to pipe to the `scontrol` command.
         check:
-            If set to `True`, raise an error if the `snap` command
+            If set to `True`, raise an error if the `scontrol` command
             exits with a non-zero exit code. Default: True
 
     Raises:
