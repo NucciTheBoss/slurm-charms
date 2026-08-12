@@ -21,8 +21,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "charmed-hpc-libs[ops]",
-    "charmlibs-apt ~= 1.0",
+    "charmed-hpc-libs[ops] >= 0.5.0",
     "cryptography~=50.0",
     "distro ~= 1.0",
     "nvidia-ml-py == 12.560.30",

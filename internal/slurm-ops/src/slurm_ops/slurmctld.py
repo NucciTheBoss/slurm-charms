@@ -33,15 +33,15 @@ from slurm_ops.core import SLURM_GROUP, SLURM_USER, SlurmConfigManager, SlurmMan
 class SlurmctldManager(SlurmManager):
     """Manage Slurm's controller service, `slurmctld`."""
 
-    def __init__(self, snap: bool = False) -> None:
-        super().__init__("slurmctld", snap)
+    def __init__(self) -> None:
+        super().__init__("slurmctld")
 
     @property
     def config(self) -> SlurmConfigManager[SlurmConfigEditor]:
         """Get the configuration manager for the `slurm.conf` file."""
         return SlurmConfigManager(
             SlurmConfigEditor,
-            file=self._ops_manager.etc_path / "slurm.conf",
+            file=self.etc_path / "slurm.conf",
             mode=0o644,
             user=self.user,
             group=self.group,
@@ -67,7 +67,7 @@ class SlurmctldManager(SlurmManager):
         """Get the configuration manager for the `acct_gather.conf` file."""
         return SlurmConfigManager(
             AcctGatherConfigEditor,
-            file=self._ops_manager.etc_path / "acct_gather.conf",
+            file=self.etc_path / "acct_gather.conf",
             mode=0o600,
             user=self.user,
             group=self.group,
@@ -78,7 +78,7 @@ class SlurmctldManager(SlurmManager):
         """Get the configuration manager for the `cgroup.conf` file."""
         return SlurmConfigManager(
             CGroupConfigEditor,
-            file=self._ops_manager.etc_path / "cgroup.conf",
+            file=self.etc_path / "cgroup.conf",
             mode=0o644,
             user=self.user,
             group=self.group,
@@ -89,7 +89,7 @@ class SlurmctldManager(SlurmManager):
         """Get the configuration manager for the `gres.conf` file."""
         return SlurmConfigManager(
             GresConfigEditor,
-            file=self._ops_manager.etc_path / "gres.conf",
+            file=self.etc_path / "gres.conf",
             mode=0o644,
             user=self.user,
             group=self.group,
@@ -100,7 +100,7 @@ class SlurmctldManager(SlurmManager):
         """Get the configuration manager for the `oci.conf` file."""
         return SlurmConfigManager(
             OCIConfigEditor,
-            file=self._ops_manager.etc_path / "oci.conf",
+            file=self.etc_path / "oci.conf",
             mode=0o644,
             user=self.user,
             group=self.group,

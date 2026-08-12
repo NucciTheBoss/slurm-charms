@@ -58,7 +58,7 @@ class SlurmdCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework) -> None:
         super().__init__(framework)
 
-        self.slurmd = SlurmdManager(self.app.name, snap=False)
+        self.slurmd = SlurmdManager(self.app.name)
         self.gpu = NvidiaGPUManager()
         try:
             self.configmgr = self.load_config(ConfigManager, partition_name=self.app.name)

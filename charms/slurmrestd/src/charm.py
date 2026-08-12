@@ -42,7 +42,7 @@ class SlurmrestdCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework) -> None:
         super().__init__(framework)
 
-        self.slurmrestd = SlurmrestdManager(snap=False)
+        self.slurmrestd = SlurmrestdManager()
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.update_status, self._on_update_status)
         framework.observe(self.on.secret_changed, self._on_secret_changed)

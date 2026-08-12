@@ -24,8 +24,8 @@ from slurm_ops.core import SLURM_GROUP, SLURM_USER, SlurmManager
 class SackdManager(SlurmManager):
     """Manage Slurm's authentication and kiosk service, `sackd`."""
 
-    def __init__(self, snap: bool = False) -> None:
-        super().__init__("sackd", snap)
+    def __init__(self) -> None:
+        super().__init__("sackd")
 
     @property
     def conf_server(self) -> list[str]:

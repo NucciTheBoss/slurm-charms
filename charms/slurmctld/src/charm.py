@@ -117,7 +117,7 @@ class SlurmctldCharm(ops.CharmBase):
         # Required to track if this unit is departing during relation broken events
         self._stored.set_default(unit_departing=False)
 
-        self.slurmctld = SlurmctldManager(snap=False)
+        self.slurmctld = SlurmctldManager()
         try:
             self.configmgr = self.load_config(ConfigManager)
         except ValidationError as e:
