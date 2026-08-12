@@ -82,12 +82,6 @@ class SecretManager(Protocol):  # pragma: no cover
         raise NotImplementedError
 
 
-# TODO: https://github.com/canonical/charmed-hpc-libs/issues/36 -
-#   Use `jwtctl` to provide backend for generating, setting, and getting
-#   jwt signing key used by `slurmctld` and `slurmdbd`. This way we also
-#   won't need to pass the keyfile path to the `__init__` constructor.
-#   .
-#   Also, enable `jwtctl` to set the user and group for the keyfile.
 class _JWTSecretManager(SecretManager):
     """Manage the `jwt_hs256.key` secret file."""
 
