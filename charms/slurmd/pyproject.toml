@@ -8,6 +8,7 @@ dependencies = [
     "ubuntu-drivers-common",
     "charmed-hpc-libs[ops]",
     "charmed-slurm-slurmd-interface",
+    "charmlibs-apt",
     "cosl",
     "pydantic",
     "python-apt",
