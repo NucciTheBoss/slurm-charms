@@ -20,6 +20,7 @@ import json
 import ops
 import pytest
 from charmed_hpc_libs.errors import SystemdError
+from charmed_slurm_slurmd_interface import AUTH_KEY_LABEL
 from constants import SLURMD_INTEGRATION_NAME, SLURMD_PORT
 from ops import testing
 from pytest_mock import MockerFixture
@@ -328,4 +329,67 @@ class TestSlurmdCharm:
         assert state.unit_status == ops.BlockedStatus(
             "Configuration option(s) 'partition-config' failed validation. "
             "See `juju debug-log` for details"
+        )
+
+    def test_on_secret_changed_success(
+        self, mock_charm, mocker: MockerFixture, leader
+    ) -> None:
+        """Test successful execution of the `_on_secret_changed` event handler."""
+        auth_key_secret = testing.Secret(
+            label=AUTH_KEY_LABEL,
+            tracked_content={"key": EXAMPLE_AUTH_KEY, "keyid": EXAMPLE_AUTH_CONTENT_ID},
+        )
+
+        integration_id = 1
+        integration = testing.Relation(
+            endpoint=SLURMD_INTEGRATION_NAME,
+            interface="slurmd",
+            id=integration_id,
+            remote_app_name="slurmctld",
+        )
+
+        with mock_charm(
+            mock_charm.on.secret_changed(auth_key_secret),
+            testing.State(
+                leader=leader,
+                relations={integration},
+                secrets={auth_key_secret},
+            ),
+        ) as manager:
+            slurmd = manager.charm.slurmd
+            mocker.patch.object(slurmd, "is_installed", return_value=True)
+            mocker.patch.object(slurmd.service, "is_active", return_value=True)
+            mock_reload = mocker.patch.object(slurmd.service, "reload")
+            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
+
+            state = manager.run()
+
+        mock_reload.assert_called_once()
+        assert state.unit_status == ops.ActiveStatus()
+
+    def test_on_secret_changed_reload_failure(
+        self, mock_charm, mocker: MockerFixture, leader
+    ) -> None:
+        """Test `_on_secret_changed` event handler when service reload fails."""
+        auth_key_secret = testing.Secret(
+            label=AUTH_KEY_LABEL,
+            tracked_content={"key": EXAMPLE_AUTH_KEY, "keyid": EXAMPLE_AUTH_CONTENT_ID},
+        )
+
+        with mock_charm(
+            mock_charm.on.secret_changed(auth_key_secret),
+            testing.State(leader=leader, secrets={auth_key_secret}),
+        ) as manager:
+            slurmd = manager.charm.slurmd
+            mocker.patch.object(slurmd, "is_installed", return_value=True)
+            mocker.patch.object(slurmd.service, "is_active")
+            mocker.patch.object(
+                slurmd.service, "reload", side_effect=SystemdError("reload failed")
+            )
+            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
+
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to reload `slurmd` configuration. See `juju debug-log` for details"
         )
