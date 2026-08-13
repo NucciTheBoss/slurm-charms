@@ -258,11 +258,17 @@ class SlurmdCharm(ops.CharmBase):
                 )
             )
 
-        # Necessary to load new key from file into the service
-        # FIXME: slurmd reloading is currently broken. Service restart is used as a workaround but
-        # this breaks zero-downtime key rotation. This must be replaced with a reload
-        # See: https://github.com/canonical/slurm-charms/issues/204
-        self.slurmd.service.restart()
+        # Necessary to load new key from file into the service.
+        try:
+            self.slurmd.service.reload()
+        except SystemdError as e:
+            logger.error("failed to reload slurmd.service. reason:\n%s", e)
+            event.defer()
+            raise StopCharm(
+                ops.BlockedStatus(
+                    "Failed to reload `slurmd` configuration. See `juju debug-log` for details"
+                )
+            )
 
     @refresh
     def _on_set_node_config_action(self, event: ops.ActionEvent) -> None:
