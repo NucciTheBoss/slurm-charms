@@ -113,6 +113,13 @@ class TestManager:
         manager.service.restart()
         assert mock_run.call_args[0][0] == ["systemctl", "restart", service]
 
+    def test_service_reload(self, mock_manager, mock_run) -> None:
+        """Test the `<manager>.service.reload()` method."""
+        manager, service = mock_manager
+
+        manager.service.reload()
+        assert mock_run.call_args[0][0] == ["systemctl", "reload", service]
+
     @pytest.mark.parametrize(
         "active",
         (
