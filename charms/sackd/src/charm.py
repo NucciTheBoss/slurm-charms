@@ -19,7 +19,7 @@ import logging
 
 import ops
 from charmed_hpc_libs.errors import SnapError, SystemdError
-from charmed_hpc_libs.ops import StopCharm, block_unless, refresh, systemctl, wait_unless
+from charmed_hpc_libs.ops import StopCharm, block_unless, refresh, wait_unless
 from charmed_slurm_sackd_interface import (
     AUTH_KEY_LABEL,
     SackdProvider,
@@ -166,10 +166,9 @@ class SackdCharm(ops.CharmBase):
                 )
             )
 
-        # Necessary to load new key from file into the service
-        # TODO: replace with self.service.reload()
+        # Necessary to load new key from file into the service.
         try:
-            systemctl("reload", "sackd.service")
+            self.sackd.service.reload()
         except SystemdError as e:
             logger.error("failed to reload sackd.service. reason:\n%s", e)
             event.defer()
