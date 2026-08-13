@@ -20,6 +20,7 @@ from pathlib import Path
 
 import ops
 import pytest
+from charmed_hpc_libs.errors import SystemdError
 from charmed_slurm_slurmctld_interface import AUTH_KEY_LABEL
 from constants import SACKD_INTEGRATION_NAME
 from ops import testing
@@ -227,6 +228,7 @@ class TestSackdCharm:
             sackd = manager.charm.sackd
             mocker.patch.object(sackd, "is_installed", return_value=True)
             mocker.patch.object(sackd.service, "is_active")
+            mock_reload = mocker.patch.object(sackd.service, "reload")
             mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
             state = manager.run()
@@ -235,7 +237,42 @@ class TestSackdCharm:
         key_file_text = key_file_path.read_text()
         actual_key_file_content = json.loads(key_file_text)
         assert actual_key_file_content == expected_key_file_content
+        mock_reload.assert_called_once()
         assert state.unit_status == ops.ActiveStatus()
+
+    def test_on_secret_changed_reload_failure(
+        self, mock_charm, mocker: MockerFixture, leader, auth_key_secret
+    ) -> None:
+        """Test `_on_secret_changed` event handler when service reload fails."""
+        integration_id = 1
+        integration = testing.Relation(
+            endpoint=SACKD_INTEGRATION_NAME,
+            interface="sackd",
+            id=integration_id,
+            remote_app_name="slurmctld",
+            remote_app_data={
+                "auth_secret_id": json.dumps(auth_key_secret.id),
+                "controllers": json.dumps(EXAMPLE_CONTROLLERS),
+            },
+        )
+
+        with mock_charm(
+            mock_charm.on.secret_changed(auth_key_secret),
+            testing.State(leader=leader, relations={integration}, secrets={auth_key_secret}),
+        ) as manager:
+            sackd = manager.charm.sackd
+            mocker.patch.object(sackd, "is_installed", return_value=True)
+            mocker.patch.object(sackd.service, "is_active")
+            mocker.patch.object(
+                sackd.service, "reload", side_effect=SystemdError("reload failed")
+            )
+            mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
+
+            state = manager.run()
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Failed to reload `sackd` configuration. See `juju debug-log` for details"
+        )
 
     def test_on_secret_changed_empty_key_id_failure(
         self, mock_charm, mocker: MockerFixture, leader
