@@ -27,6 +27,7 @@ from charmed_slurm_slurmd_interface import (
     SlurmctldConnectedEvent,
     SlurmctldReadyEvent,
     SlurmdDisconnectedEvent,
+    SlurmdNodeDepartedEvent,
     SlurmdProvider,
     SlurmdReadyEvent,
     SlurmdRequirer,
@@ -99,6 +100,10 @@ class MockSlurmdRequirerCharm(ops.CharmBase):
             self._on_slurmd_ready,
         )
         framework.observe(
+            self.slurmd.on.slurmd_node_departed,
+            self._on_slurmd_node_departed,
+        )
+        framework.observe(
             self.slurmd.on.slurmd_disconnected,
             self._on_slurmd_disconnected,
         )
@@ -121,6 +126,8 @@ class MockSlurmdRequirerCharm(ops.CharmBase):
             ),
             integration_id=event.relation.id,
         )
+
+    def _on_slurmd_node_departed(self, event: SlurmdNodeDepartedEvent) -> None: ...
 
     def _on_slurmd_disconnected(self, event: SlurmdDisconnectedEvent) -> None: ...
 
@@ -343,6 +350,44 @@ class TestSlurmdInterface:
                 isinstance(event, SlurmdReadyEvent) for event in requirer_ctx.emitted_events
             )
             assert len(state.deferred) == 0
+
+    def test_requirer_on_slurmd_node_departed_event(self, requirer_ctx, leader) -> None:
+        """Test that the `slurmd` requirer emits `SlurmdNodeDepartedEvent` on unit departure."""
+        slurmd_integration_id = 22
+        slurmd_integration = testing.Relation(
+            endpoint=SLURMD_INTEGRATION_NAME,
+            interface="slurmd",
+            id=slurmd_integration_id,
+            remote_app_name="slurmd-provider",
+        )
+
+        requirer_ctx.run(
+            requirer_ctx.on.relation_departed(slurmd_integration, departing_unit=1),
+            testing.State(
+                leader=leader,
+                relations={slurmd_integration},
+            ),
+        )
+
+        if leader:
+            # Assert that `SlurmdNodeDepartedEvent` was emitted only once and that the
+            # `departing_node` is derived from the departing unit's name.
+            occurred = defaultdict(lambda: 0)
+            for event in requirer_ctx.emitted_events:
+                occurred[type(event)] += 1
+
+            assert occurred[SlurmdNodeDepartedEvent] == 1
+            departed_event = next(
+                event
+                for event in requirer_ctx.emitted_events
+                if isinstance(event, SlurmdNodeDepartedEvent)
+            )
+            assert departed_event.departing_node == "slurmd-provider-1"
+        else:
+            # Assert that `SlurmdNodeDepartedEvent` is never emitted on non-leader units.
+            assert not any(
+                isinstance(event, SlurmdNodeDepartedEvent) for event in requirer_ctx.emitted_events
+            )
 
     def test_requirer_on_slurmd_disconnected_event(self, requirer_ctx, leader) -> None:
         """Test that the `slurmd` requirer properly captures when a partition is disconnected."""
