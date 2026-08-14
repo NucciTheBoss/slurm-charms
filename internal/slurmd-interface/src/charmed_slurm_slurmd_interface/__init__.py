@@ -18,6 +18,7 @@ __all__ = [
     "ComputeData",
     "SlurmdConnectedEvent",
     "SlurmdReadyEvent",
+    "SlurmdNodeDepartedEvent",
     "SlurmdDisconnectedEvent",
     "SlurmdProvider",
     "SlurmdRequirer",
@@ -94,6 +95,18 @@ class SlurmdReadyEvent(ops.RelationEvent):
     """
 
 
+class SlurmdNodeDepartedEvent(ops.RelationDepartedEvent):
+    """Event emitted when a single `slurmd` compute node departs the integration."""
+
+    @property
+    def departing_node(self) -> str | None:
+        """Name of the departing compute node as registered in Slurm."""
+        if self.departing_unit is None:
+            return None
+
+        return self.departing_unit.name.replace("/", "-")
+
+
 class SlurmdDisconnectedEvent(ops.RelationEvent):
     """Event emitted when the `slurmd` application is disconnected from `slurmctld`."""
 
@@ -103,6 +116,7 @@ class _SlurmdRequirerEvents(ops.ObjectEvents):
 
     slurmd_connected = ops.EventSource(SlurmdConnectedEvent)
     slurmd_ready = ops.EventSource(SlurmdReadyEvent)
+    slurmd_node_departed = ops.EventSource(SlurmdNodeDepartedEvent)
     slurmd_disconnected = ops.EventSource(SlurmdDisconnectedEvent)
 
 
@@ -179,6 +193,19 @@ class SlurmdRequirer(SlurmctldProvider):
         if not event.relation.data.get(event.relation.app):
             return
         self.on.slurmd_ready.emit(event.relation)
+
+    def _on_relation_departed(self, event: ops.RelationDepartedEvent) -> None:
+        """Handle when a single `slurmd` compute node departs the relation."""
+        # Must call the base implementation on all units to preserve the `unit_departing`
+        # tracking used to guard `relation_broken` cleanup. Only the leader emits the
+        # `SlurmdNodeDepartedEvent` so the `slurmctld` leader can delete the departing
+        # compute node from Slurm.
+        super()._on_relation_departed(event)
+        if self.unit.is_leader():
+            self.on.slurmd_node_departed.emit(
+                event.relation,
+                departing_unit_name=event.departing_unit.name if event.departing_unit else None,
+            )
 
     @leader
     def _on_relation_broken(self, event: ops.RelationBrokenEvent) -> None:
