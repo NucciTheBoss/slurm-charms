@@ -45,6 +45,7 @@ from charmed_slurm_slurmctld_interface import (
 )
 from charmed_slurm_slurmd_interface import (
     SlurmdDisconnectedEvent,
+    SlurmdNodeDepartedEvent,
     SlurmdReadyEvent,
     SlurmdRequirer,
     partition_ready,
@@ -163,6 +164,7 @@ class SlurmctldCharm(ops.CharmBase):
 
         self.slurmd = SlurmdRequirer(self, SLURMD_INTEGRATION_NAME)
         framework.observe(self.slurmd.on.slurmd_ready, self._on_slurmd_ready)
+        framework.observe(self.slurmd.on.slurmd_node_departed, self._on_slurmd_node_departed)
         framework.observe(self.slurmd.on.slurmd_disconnected, self._on_slurmd_disconnected)
 
         self.slurmdbd = SlurmdbdRequirer(self, SLURMDBD_INTEGRATION_NAME)
@@ -461,6 +463,38 @@ class SlurmctldCharm(ops.CharmBase):
             ),
             integration_id=event.relation.id,
         )
+
+        self._reconfigure()
+
+    @refresh
+    @block_unless(slurmctld_installed)
+    def _on_slurmd_node_departed(self, event: SlurmdNodeDepartedEvent) -> None:
+        """Handle when a single `slurmd` compute node departs the relation.
+
+        Deletes the departing unit's dynamic node from Slurm.
+        """
+        if event.departing_node is None:
+            logger.debug(f"`{event.__class__.__name__}` has no departing node. skipping...")
+            return
+
+        node = event.departing_node
+        logger.info("deleting compute node '%s' from %s after node departure", node, self.configmgr.cluster_name)
+        try:
+            self.slurmctld.delete_compute_node(node)
+        except SlurmOpsError as e:
+            logger.error(
+                "failed to delete compute node '%s' from %s. reason:\n%s",
+                node,
+                self.configmgr.cluster_name,
+                e.message,
+            )
+            event.defer()
+            raise StopCharm(
+                ops.BlockedStatus(
+                    f"Failed to delete departing compute node `{node}` from Slurm. "
+                    "See `juju debug-log` for details"
+                )
+            ) from None
 
         self._reconfigure()
 

@@ -26,6 +26,7 @@ from constants import (
     MAIL_INTEGRATION_NAME,
     OCI_RUNTIME_INTEGRATION_NAME,
     PEER_INTEGRATION_NAME,
+    SLURMD_INTEGRATION_NAME,
 )
 from ops import testing
 from pytest_mock import MockerFixture
@@ -179,6 +180,33 @@ class TestSlurmctldCharm:
                 isinstance(event, OCIRuntimeDisconnectedEvent)
                 for event in mock_charm.emitted_events
             )
+
+    def test_on_slurmd_node_departed_deletes_node(
+        self, mock_charm, mocker: MockerFixture, leader
+    ) -> None:
+        """Test that `_on_slurmd_node_departed` deletes the departing compute node."""
+        integration_id = 1
+        integration = testing.Relation(
+            endpoint=SLURMD_INTEGRATION_NAME,
+            interface="slurmd",
+            id=integration_id,
+            remote_app_name="slurmd",
+        )
+
+        with mock_charm(
+            mock_charm.on.relation_departed(integration, departing_unit=2),
+            testing.State(leader=leader, relations={integration}),
+        ) as manager:
+            slurmctld = manager.charm.slurmctld
+            mocker.patch.object(slurmctld, "is_installed", return_value=True)
+            mock_delete = mocker.patch.object(slurmctld, "delete_compute_node")
+
+            manager.run()
+
+        if leader:
+            mock_delete.assert_called_once_with("slurmd-2")
+        else:
+            mock_delete.assert_not_called()
 
     @pytest.mark.parametrize(
         "params,expected",
