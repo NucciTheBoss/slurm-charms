@@ -225,9 +225,14 @@ class SlurmdCharm(ops.CharmBase):
     @refresh
     @block_unless(slurmd_installed)
     def _on_slurmctld_disconnected(self, event: SlurmctldDisconnectedEvent) -> None:
-        """Handle when the unit is disconnected from `slurmctld`."""
+        """Handle when the unit is disconnected from `slurmctld`.
+
+        Notes:
+            - Node deletion from Slurm is handled by the `slurmctld` leader using
+              `SlurmdNodeDepartedEvent` (per-unit). This handler only performs
+              local cleanup on the departing `slurmd` unit.
+        """
         try:
-            self.slurmd.delete()
             self.slurmd.service.stop()
             self.slurmd.service.disable()
             del self.slurmd.conf_server
