@@ -160,6 +160,46 @@ def test_default_slurmd_unit_node_state_and_reason(juju: jubilant.Juju) -> None:
     assert result["nodes"][0]["reason"] == "'n/a'"
 
 
+@pytest.mark.order(7)
+def test_partition_scale_down(juju: jubilant.Juju) -> None:
+    """Test that scaling down ``compute`` removes the corresponding nodes from Slurm."""
+    slurmctld_unit = f"{SLURMCTLD_APP_NAME}/0"
+
+    juju.add_unit(SLURMD_APP_NAME, num_units=2)
+    juju.wait(
+        lambda status: jubilant.all_active(status, *SLURM_APPS),
+        error=lambda status: jubilant.any_error(status, *SLURM_APPS),
+    )
+
+    new_nodes = ["compute-1", "compute-2"]
+    for name in new_nodes:
+        result = json.loads(
+            juju.exec(f"scontrol --json show node {name}", unit=slurmctld_unit).stdout
+        )
+        assert result["nodes"], f"node {name} not registered with Slurm after scale-up"
+
+    juju.remove_unit(f"{SLURMD_APP_NAME}/1", f"{SLURMD_APP_NAME}/2")
+    juju.wait(
+        lambda status: jubilant.all_active(status, *SLURM_APPS),
+        error=lambda status: jubilant.any_error(status, *SLURM_APPS),
+    )
+
+    attempts = tenacity.Retrying(
+        wait=tenacity.wait.wait_exponential(multiplier=2, min=1),
+        stop=tenacity.stop_after_attempt(5),
+        reraise=True,
+    )
+    for attempt in attempts:
+        with attempt:
+            for name in new_nodes:
+                result = json.loads(
+                    juju.exec(f"scontrol --json show node {name}", unit=slurmctld_unit).stdout
+                )
+                assert not result["nodes"], (
+                    f"node {name} still registered with Slurm after scale down"
+                )
+
+
 @pytest.mark.order(8)
 def test_set_node_config_action(juju: jubilant.Juju) -> None:
     """Test that a compute node's configuration can be successfully updated."""
