@@ -164,6 +164,17 @@ class SlurmctldManager(SlurmManager):
 
         return controllers
 
+    def delete_compute_node(self, name: str) -> None:
+        """Delete a compute node from Slurm.
+
+        Args:
+            name: Name of the compute node to delete, e.g. ``"slurmd-2"``.
+
+        Raises:
+            SlurmOpsError: Raised if ``scontrol`` fails to delete the compute node.
+        """
+        scontrol("delete", f"nodename={name}")
+
     def get_controller_status(self) -> str:
         """Get the status of the current controller instance."""
         # Example snippet of ping output:

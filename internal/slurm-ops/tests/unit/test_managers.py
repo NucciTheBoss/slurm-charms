@@ -32,7 +32,7 @@ from constants import (
 from dotenv import dotenv_values
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
-from slurm_ops import SackdManager, SlurmdbdManager, SlurmdManager
+from slurm_ops import SackdManager, SlurmctldManager, SlurmdbdManager, SlurmdManager
 from slurm_ops.core import SlurmManager
 from slurmutils import Node
 
@@ -377,6 +377,24 @@ class TestSlurmdManager:
 
         assert mock_run.call_args[0][0] == ["scontrol", "--json", "show", "node", "compute-0"]
         assert info == json.loads(SCONTROL_SHOW_NODE_OUTPUT)["nodes"][0]
+
+
+class TestSlurmctldManager:
+    """Test additional behavior of the `SlurmctldManager` class."""
+
+    @pytest.fixture
+    def mock_manager(self, fs: FakeFilesystem) -> SlurmctldManager:
+        """Request a mocked `SlurmctldManager` instance."""
+        fs.create_file("/etc/slurm/slurm.conf", create_missing_dirs=True)
+        return SlurmctldManager()
+
+    # Test manager methods.
+
+    def test_delete_compute_node(self, mock_manager, mock_run) -> None:
+        """Test the `delete_compute_node` method."""
+        mock_manager.delete_compute_node("slurmd-2")
+
+        assert mock_run.call_args[0][0] == ["scontrol", "delete", "nodename=slurmd-2"]
 
 
 class TestSlurmdbdManager:
