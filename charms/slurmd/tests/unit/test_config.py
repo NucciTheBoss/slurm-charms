@@ -15,17 +15,17 @@
 
 """Unit tests for the `slurmd` charmed operators `config` module."""
 
+import ops
 import pytest
-from config import ConfigManager
-from ops import ConfigData
+from config import ConfigData
 from pydantic import ValidationError
 from slurmutils import Partition
 
 APP_NAME = "compute"
 
 
-class TestConfigManager:
-    """Unit tests for the `ConfigManager` class."""
+class TestConfigData:
+    """Unit tests for the `ConfigData` class."""
 
     @pytest.mark.parametrize(
         "valid_charm_config",
@@ -64,7 +64,7 @@ class TestConfigManager:
         partition_config.partition_name = APP_NAME
         partition_config.nodes = [APP_NAME]
 
-        config = ConfigManager(
+        config = ConfigData(
             **valid_charm_config,
             partition_name=APP_NAME,
         )
@@ -99,7 +99,7 @@ class TestConfigManager:
             ),
         ),
     )
-    def test_load_invalid_config(self, invalid_charm_config: ConfigData) -> None:
+    def test_load_invalid_config(self, invalid_charm_config: ops.ConfigData) -> None:
         """Test the `load` method with invalid configuration option values."""
         with pytest.raises(ValidationError):
-            ConfigManager(**invalid_charm_config, partition_name=APP_NAME)
+            ConfigData(**invalid_charm_config, partition_name=APP_NAME)
