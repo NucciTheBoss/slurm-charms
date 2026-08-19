@@ -16,20 +16,20 @@
 
 import logging
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator
+from pydantic.dataclasses import dataclass
 from slurmutils import ModelError, SlurmdbdConfig
 
 _logger = logging.getLogger(__name__)
 
 
-class ConfigManager(BaseModel):
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
+class ConfigData:
     """Interface to `slurmdbd` application configuration options."""
 
     # FIXME: `arbitrary_types_allowed=True` must be used here since pydantic cannot construct
     #  a schema for the `SlurmdbdConfig` object. This config can be removed when slurmutils v2 has
     #  transitioned to using pydantic models rather than custom ones.
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
     slurmdbd_conf_parameters: SlurmdbdConfig
 
     @field_validator("slurmdbd_conf_parameters", mode="before")

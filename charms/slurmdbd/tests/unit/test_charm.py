@@ -100,6 +100,23 @@ class TestSlurmdbdCharm:
         else:
             assert not slurmdbd.config.path.exists()
 
+    def test_bad_configuration(self, mock_charm, peer_integration, leader) -> None:
+        """Test that a bad configuration blocks the ``_on_config_changed`` event handler."""
+        state = mock_charm.run(
+            mock_charm.on.config_changed(),
+            testing.State(
+                leader=leader,
+                relations={peer_integration},
+                config={"slurmdbd-conf-parameters": "this is not valid slurmdbd config="},
+            ),
+        )
+
+        if leader:
+            assert state.unit_status == ops.BlockedStatus(
+                "Configuration option(s) 'slurmdbd-conf-parameters' failed validation. "
+                "See `juju debug-log` for details"
+            )
+
     def test_reconfigure(
         self,
         mock_charm,
