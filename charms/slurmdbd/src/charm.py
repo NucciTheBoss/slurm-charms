@@ -20,7 +20,7 @@ import logging
 from urllib.parse import urlparse
 
 import ops
-from charmed_hpc_libs.ops import get_ingress_address
+from charmed_hpc_libs.ops import ConfigObserver, get_ingress_address
 from charmed_hpc_libs.ops.conditions import StopCharm, block_unless, leader, refresh, wait_unless
 from charmed_slurm_slurmctld_interface import JWT_KEY_LABEL
 from charmed_slurm_slurmdbd_interface import (
@@ -31,7 +31,7 @@ from charmed_slurm_slurmdbd_interface import (
     controller_ready,
 )
 from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
-from config import ConfigManager
+from config import ConfigData
 from constants import (
     DATABASE_INTEGRATION_NAME,
     PEER_INTEGRATION_NAME,
@@ -39,7 +39,6 @@ from constants import (
     SLURMDBD_INTEGRATION_NAME,
     SLURMDBD_PORT,
 )
-from pydantic import ValidationError
 from slurm_ops import SlurmdbdManager, SlurmOpsError
 from slurmutils import SlurmdbdConfig
 from state import check_slurmdbd, slurmdbd_installed, slurmdbd_ready
@@ -57,22 +56,7 @@ class SlurmdbdCharm(ops.CharmBase):
         super().__init__(framework)
 
         self.slurmdbd = SlurmdbdManager()
-        try:
-            self.configmgr = self.load_config(ConfigManager)
-        except ValidationError as e:
-            logger.error(e)
-            self.unit.status = ops.BlockedStatus(
-                "Configuration option(s) "
-                + ", ".join(
-                    [
-                        f"'{option.replace('_', '-')}'"  # type: ignore
-                        for error in e.errors()
-                        for option in error.get("loc", ())
-                    ]
-                )
-                + " failed validation. See `juju debug-log` for details"
-            )
-            return
+        self.typed_config = ConfigObserver(self, ConfigData)
 
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.config_changed, self._on_config_changed)
@@ -126,6 +110,8 @@ class SlurmdbdCharm(ops.CharmBase):
     @refresh
     def _on_config_changed(self, _: ops.ConfigChangedEvent) -> None:
         """Update the `slurmdbd` charm's configuration."""
+        charm_config = self.typed_config.load()
+
         # `slurmdbd.conf` must be updated here since the ingress address is not available
         # in the `install` hook.
         with self.slurmdbd.config.edit() as config:
@@ -141,7 +127,7 @@ class SlurmdbdCharm(ops.CharmBase):
             config.slurm_user = self.slurmdbd.user
             config.storage_type = "accounting_storage/mysql"
 
-        self.slurmdbd.overrides.dump(self.configmgr.slurmdbd_conf_parameters)
+        self.slurmdbd.overrides.dump(charm_config.slurmdbd_conf_parameters)
 
         self._reconfigure()
 
