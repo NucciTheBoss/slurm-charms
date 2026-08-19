@@ -22,6 +22,7 @@ import secrets
 import mail
 import ops
 from charmed_hpc_libs.ops import (
+    ConfigObserver,
     StopCharm,
     block_unless,
     is_container,
@@ -63,7 +64,7 @@ from charmed_slurm_slurmrestd_interface import (
 )
 from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 from charms.smtp_integrator.v0.smtp import SmtpDataAvailableEvent, SmtpRequires
-from config import ConfigManager
+from config import ConfigData
 from constants import (
     CLUSTER_NAME_PREFIX,
     HA_MOUNT_INTEGRATION_NAME,
@@ -82,7 +83,6 @@ from high_availability import SlurmctldHA
 from integrations import SlurmctldPeer, SlurmctldPeerConnectedEvent
 from interface_influxdb import InfluxDB, InfluxDBAvailableEvent, InfluxDBUnavailableEvent
 from psutil import net_if_addrs
-from pydantic import ValidationError
 from slurm_ops import SecretManager, SlurmctldManager, SlurmOpsError, scontrol
 from slurmutils import (
     AcctGatherConfig,
@@ -119,22 +119,7 @@ class SlurmctldCharm(ops.CharmBase):
         self._stored.set_default(unit_departing=False)
 
         self.slurmctld = SlurmctldManager()
-        try:
-            self.configmgr = self.load_config(ConfigManager)
-        except ValidationError as e:
-            logger.error(e)
-            self.unit.status = ops.BlockedStatus(
-                "Configuration option(s) "
-                + ", ".join(
-                    [
-                        f"'{option.replace('_', '-')}'"  # type: ignore
-                        for error in e.errors()
-                        for option in error.get("loc", ())
-                    ]
-                )
-                + " failed validation. See `juju debug-log` for details"
-            )
-            return
+        self.typed_config = ConfigObserver(self, ConfigData)
 
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.leader_elected, self._on_leader_elected)
@@ -338,23 +323,25 @@ class SlurmctldCharm(ops.CharmBase):
     @refresh
     def _on_config_changed(self, _: ops.ConfigChangedEvent) -> None:
         """Update the `slurmctld` application's configuration."""
+        charm_config = self.typed_config.load()
+
         # Each unit maintains its own Slurm-Mail configuration, not just the leader.
         # File coherence not a concern - Slurm-Mail can run with a stale slurm-mail.conf. It just
         # briefly attempts to use an old SMTP config or an old `email-from-name` until hooks run to
         # bring config in sync.
         if self.model.relations.get(MAIL_INTEGRATION_NAME):
             with mail.configure() as config:
-                config.from_name = self.configmgr.email_from_name
+                config.from_name = charm_config.email_from_name
         else:
             logger.debug("smtp integration not connected. skipping mail configuration")
 
         # Only the leader handles configuration changes for the slurmctld service. Non-leader units
         # read configuration managed by the leader.
         if self.unit.is_leader():
-            self.slurmctld.overrides.dump(self.configmgr.slurm_conf_parameters)
+            self.slurmctld.overrides.dump(charm_config.slurm_conf_parameters)
 
             current_default_partition = self.slurmctld.get_default_partition()
-            if self.configmgr.default_partition == current_default_partition:
+            if charm_config.default_partition == current_default_partition:
                 logger.debug(
                     "default partition '%s' has not changed. "
                     "skipping update to default partition configuration",
@@ -365,10 +352,10 @@ class SlurmctldCharm(ops.CharmBase):
                     "default partition has changed from '%s' to '%s'. "
                     "updating default partition configuration",
                     current_default_partition,
-                    self.configmgr.default_partition,
+                    charm_config.default_partition,
                 )
                 self.slurmctld.set_default_partition(
-                    self.configmgr.default_partition,
+                    charm_config.default_partition,
                     current_default_partition,
                 )
                 logger.info("default partition configuration updated successfully")
@@ -383,7 +370,7 @@ class SlurmctldCharm(ops.CharmBase):
                 )
             else:
                 logger.info("updating `%s` configuration", self.slurmctld.cgroup.name)
-                self.slurmctld.cgroup.dump(self.configmgr.cgroup_parameters)
+                self.slurmctld.cgroup.dump(charm_config.cgroup_parameters)
                 logger.info("`%s` configuration updated successfully", self.slurmctld.cgroup.name)
 
         self._reconfigure()
@@ -437,12 +424,18 @@ class SlurmctldCharm(ops.CharmBase):
     @block_unless(slurmctld_installed)
     def _on_slurmd_ready(self, event: SlurmdReadyEvent) -> None:
         """Handle when partition data is ready from a `slurmd` application."""
+        try:
+            charm_config = self.typed_config.load()
+        except StopCharm:
+            event.defer()
+            raise
+
         auth_secret_id = self.model.get_secret(label=AUTH_KEY_LABEL).get_info().id
         data = self.slurmd.get_compute_data(event.relation.id)
         name = data.partition.partition_name
         include = f"slurm.conf.{name}"
 
-        if name == self.configmgr.default_partition:
+        if name == charm_config.default_partition:
             data.partition.default = True
 
         with self.slurmctld.config.includes[include].edit() as config:
@@ -477,15 +470,25 @@ class SlurmctldCharm(ops.CharmBase):
             logger.debug(f"`{event.__class__.__name__}` has no departing node. skipping...")
             return
 
+        try:
+            charm_config = self.typed_config.load()
+        except StopCharm:
+            event.defer()
+            raise
+
         node = event.departing_node
-        logger.info("deleting compute node '%s' from %s after node departure", node, self.configmgr.cluster_name)
+        logger.info(
+            "deleting compute node '%s' from %s after node departure",
+            node,
+            charm_config.cluster_name,
+        )
         try:
             self.slurmctld.delete_compute_node(node)
         except SlurmOpsError as e:
             logger.error(
                 "failed to delete compute node '%s' from %s. reason:\n%s",
                 node,
-                self.configmgr.cluster_name,
+                charm_config.cluster_name,
                 e.message,
             )
             event.defer()
@@ -784,6 +787,12 @@ class SlurmctldCharm(ops.CharmBase):
     @block_unless(slurmctld_installed)
     def _on_smtp_data_available(self, event: SmtpDataAvailableEvent) -> None:
         """Apply new or changed SMTP data."""
+        try:
+            charm_config = self.typed_config.load()
+        except StopCharm:
+            event.defer()
+            raise
+
         message = "configuring slurm-mail"
         logger.info(message)
         self.unit.status = ops.MaintenanceStatus(message.capitalize())
@@ -804,7 +813,7 @@ class SlurmctldCharm(ops.CharmBase):
                 config.use_tls = use_tls
                 config.user = event.user
                 config.password = password
-                config.from_name = self.configmgr.email_from_name
+                config.from_name = charm_config.email_from_name
         except mail.MailOpsError as e:
             logger.error(e.message)
             event.defer()
@@ -815,8 +824,8 @@ class SlurmctldCharm(ops.CharmBase):
             )
 
         if self.unit.is_leader():
-            with self.slurmctld.config.edit() as config:
-                config.mail_prog = str(MAILPROG_PATH)
+            with self.slurmctld.config.edit() as charm_config:
+                charm_config.mail_prog = str(MAILPROG_PATH)
 
         self._reconfigure()
 
