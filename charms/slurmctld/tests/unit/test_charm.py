@@ -18,6 +18,7 @@
 import textwrap
 from pathlib import Path
 
+import ops
 import pytest
 from charmed_slurm_oci_runtime_interface import OCIRuntimeDisconnectedEvent, OCIRuntimeReadyEvent
 from charmlibs import apt
@@ -207,6 +208,22 @@ class TestSlurmctldCharm:
             mock_delete.assert_called_once_with("slurmd-2")
         else:
             mock_delete.assert_not_called()
+
+    def test_bad_configuration(self, mock_charm, leader, peer_integration) -> None:
+        """Test that a bad configuration blocks the ``_on_config_changed`` event handler."""
+        state = mock_charm.run(
+            mock_charm.on.config_changed(),
+            testing.State(
+                leader=leader,
+                relations={peer_integration},
+                config={"slurm-conf-parameters": "this is not valid slurm config="},
+            ),
+        )
+
+        assert state.unit_status == ops.BlockedStatus(
+            "Configuration option(s) 'slurm-conf-parameters' failed validation. "
+            "See `juju debug-log` for details"
+        )
 
     @pytest.mark.parametrize(
         "params,expected",

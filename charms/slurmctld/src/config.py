@@ -14,18 +14,18 @@
 
 """Manage the configuration of the `slurmctld` charmed operator."""
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator
+from pydantic.dataclasses import dataclass
 from slurmutils import CGroupConfig, ModelError, SlurmConfig
 
 
-class ConfigManager(BaseModel):
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
+class ConfigData:
     """Interface to the `slurmctld` application configuration."""
 
     # FIXME: `arbitrary_types_allowed=True` must be used here since pydantic cannot construct
     #  a schema for the `SlurmConfig` and `CGroupConfig` objects. This config can be removed when
     #  slurmutils v2 has transitioned to using pydantic models rather than custom ones.
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
     cgroup_parameters: CGroupConfig
     cluster_name: str
     default_partition: str
