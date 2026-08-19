@@ -21,7 +21,7 @@ import logging
 import ops
 import rdma
 from charmed_hpc_libs.errors import SnapError, SystemdError
-from charmed_hpc_libs.ops import StopCharm, block_unless, refresh, wait_unless
+from charmed_hpc_libs.ops import ConfigObserver, StopCharm, block_unless, refresh, wait_unless
 from charmed_slurm_slurmd_interface import (
     AUTH_KEY_LABEL,
     ComputeData,
@@ -32,10 +32,9 @@ from charmed_slurm_slurmd_interface import (
     controller_ready,
 )
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from config import ConfigManager
+from config import ConfigData
 from constants import PROMETHEUS_SCRAPE_INTEGRATION_NAME, SLURMD_INTEGRATION_NAME, SLURMD_PORT
 from gpu import DCGM_EXPORTER_SCRAPE_CONFIG, GPUOpsError, NvidiaGPUManager
-from pydantic import ValidationError
 from slurm_ops import (
     NODE_EXPORTER_COLLECTORS,
     NODE_EXPORTER_PLUGS,
@@ -60,22 +59,7 @@ class SlurmdCharm(ops.CharmBase):
 
         self.slurmd = SlurmdManager(self.app.name)
         self.gpu = NvidiaGPUManager()
-        try:
-            self.configmgr = self.load_config(ConfigManager, partition_name=self.app.name)
-        except ValidationError as e:
-            logger.error(e)
-            self.unit.status = ops.BlockedStatus(
-                "Configuration option(s) "
-                + ", ".join(
-                    [
-                        f"'{option.replace('_', '-')}'"  # type: ignore
-                        for error in e.errors()
-                        for option in error.get("loc", ())
-                    ]
-                )
-                + " failed validation. See `juju debug-log` for details"
-            )
-            return
+        self.typed_config = ConfigObserver(self, ConfigData, partition_name=self.app.name)
 
         framework.observe(self.on.install, self._on_install)
         framework.observe(self.on.config_changed, self._on_config_changed)
@@ -178,7 +162,8 @@ class SlurmdCharm(ops.CharmBase):
     @refresh
     def _on_config_changed(self, _: ops.ConfigChangedEvent) -> None:
         """Update the `slurmd` application's configuration."""
-        self.slurmctld.set_compute_data(ComputeData(partition=self.configmgr.partition_config))
+        config = self.typed_config.load()
+        self.slurmctld.set_compute_data(ComputeData(partition=config.partition_config))
 
     @refresh
     def _on_update_status(self, _: ops.UpdateStatusEvent) -> None:
@@ -188,8 +173,14 @@ class SlurmdCharm(ops.CharmBase):
     @block_unless(slurmd_installed)
     def _on_slurmctld_connected(self, event: SlurmctldConnectedEvent) -> None:
         """Handle when the `slurmd` application is connected to `slurmctld`."""
+        try:
+            config = self.typed_config.load()
+        except StopCharm:
+            event.defer()
+            raise
+
         self.slurmctld.set_compute_data(
-            ComputeData(partition=self.configmgr.partition_config),
+            ComputeData(partition=config.partition_config),
             integration_id=event.relation.id,
         )
 
@@ -198,6 +189,12 @@ class SlurmdCharm(ops.CharmBase):
     @block_unless(slurmd_installed)
     def _on_slurmctld_ready(self, event: SlurmctldReadyEvent) -> None:
         """Handle when controller data is ready from the `slurmctld` application."""
+        try:
+            config = self.typed_config.load()
+        except StopCharm:
+            event.defer()
+            raise
+
         data = self.slurmctld.get_controller_data(event.relation.id)
 
         self.slurmd.key.set({"key": data.auth_key, "keyid": data.auth_key_id})
@@ -207,8 +204,8 @@ class SlurmdCharm(ops.CharmBase):
         params = {}
         if not self.slurmd.exists():
             params = {
-                "state": self.configmgr.default_node_state,
-                "reason": self.configmgr.default_node_reason,
+                "state": config.default_node_state,
+                "reason": config.default_node_reason,
             }
 
         try:

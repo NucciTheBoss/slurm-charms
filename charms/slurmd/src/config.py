@@ -17,20 +17,20 @@
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+from pydantic import ConfigDict, ValidationInfo, field_validator
+from pydantic.dataclasses import dataclass
 from slurmutils import ModelError, Partition
 
 _logger = logging.getLogger(__name__)
 
 
-class ConfigManager(BaseModel):
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
+class ConfigData:
     """Interface to `slurmd` application configuration options."""
 
     # FIXME: `arbitrary_types_allowed=True` must be used here since pydantic cannot construct
     #  a schema for the `Partition` object. This config can be removed when slurmutils v2 has
     #  transitioned to using pydantic models rather than custom ones.
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
     default_node_state: Literal["idle", "down"]
     default_node_reason: str
     partition_name: str
