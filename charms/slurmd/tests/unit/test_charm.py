@@ -331,9 +331,7 @@ class TestSlurmdCharm:
             "See `juju debug-log` for details"
         )
 
-    def test_on_secret_changed_success(
-        self, mock_charm, mocker: MockerFixture, leader
-    ) -> None:
+    def test_on_secret_changed_success(self, mock_charm, mocker: MockerFixture, leader) -> None:
         """Test successful execution of the `_on_secret_changed` event handler."""
         auth_key_secret = testing.Secret(
             label=AUTH_KEY_LABEL,

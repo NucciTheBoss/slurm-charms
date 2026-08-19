@@ -263,9 +263,7 @@ class TestSackdCharm:
             sackd = manager.charm.sackd
             mocker.patch.object(sackd, "is_installed", return_value=True)
             mocker.patch.object(sackd.service, "is_active")
-            mocker.patch.object(
-                sackd.service, "reload", side_effect=SystemdError("reload failed")
-            )
+            mocker.patch.object(sackd.service, "reload", side_effect=SystemdError("reload failed"))
             mocker.patch("shutil.chown")  # User/group `slurm` doesn't exist on host.
 
             state = manager.run()
