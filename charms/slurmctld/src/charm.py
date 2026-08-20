@@ -88,6 +88,7 @@ from slurmutils import (
     AcctGatherConfig,
     ModelError,
     NodeSet,
+    OCIConfig,
     SlurmConfig,
 )
 from state import (
@@ -671,8 +672,22 @@ class SlurmctldCharm(ops.CharmBase):
         data = self.oci_runtime.get_oci_runtime_data(event.relation.id)
 
         logger.info("updating `%s` configuration", self.slurmctld.oci.name)
-        logger.debug("`%s`:\n%s", self.slurmctld.oci.name, data.ociconfig.dict())
-        self.slurmctld.oci.dump(data.ociconfig)
+        config = OCIConfig()
+        match data.type:
+            case "apptainer":
+                config.ignore_file_config_json = True
+                config.env_exclude = "^(SLURM_CONF|SLURM_CONF_SERVER)="
+                config.run_time_env_exclude = "^(SLURM_CONF|SLURM_CONF_SERVER)="
+                config.run_time_run = (
+                    f"{data.executable_path} exec --userns "
+                    f"--bind {self.slurmctld.var_lib_path} "
+                    f"--bind {self.slurmctld.var_run_path} %r %@"
+                )
+                config.run_time_kill = "kill -s SIGTERM %p"
+                config.run_time_delete = "kill -s SIGKILL %p"
+
+        logger.debug("`%s`:\n%s", self.slurmctld.oci.name, config.dict())
+        self.slurmctld.oci.dump(config)
         logger.info("`%s` configuration updated successfully", self.slurmctld.oci.name)
         self._reconfigure()
 

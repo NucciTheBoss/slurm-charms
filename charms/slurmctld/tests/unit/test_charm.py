@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2023-2025 Canonical Ltd.
+# Copyright 2023-2026 Canonical Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,10 +35,12 @@ from slurm_ops import SlurmOpsError
 from slurmutils import OCIConfig
 
 EXAMPLE_OCI_CONFIG = OCIConfig(
-    ignorefileconfigjson=False,
+    ignorefileconfigjson=True,
     envexclude="^(SLURM_CONF|SLURM_CONF_SERVER)=",
     runtimeenvexclude="^(SLURM_CONF|SLURM_CONF_SERVER)=",
-    runtimerun="apptainer exec --userns %r %@",
+    runtimerun=(
+        "/usr/bin/apptainer exec --userns --bind /var/lib/slurm --bind /var/run/slurm %r %@"
+    ),
     runtimekill="kill -s SIGTERM %p",
     runtimedelete="kill -s SIGKILL %p",
 )
@@ -131,7 +133,9 @@ class TestSlurmctldCharm:
             interface="slurm-oci-runtime",
             id=integration_id,
             remote_app_name="apptainer",
-            remote_app_data={"ociconfig": EXAMPLE_OCI_CONFIG.json()} if ready else {},
+            remote_app_data={"type": '"apptainer"', "executable_path": '"/usr/bin/apptainer"'}
+            if ready
+            else {},
         )
 
         with mock_charm(
