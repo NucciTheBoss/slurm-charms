@@ -28,14 +28,14 @@ from charmed_slurm_oci_runtime_interface import (
 
 ```mermaid
 flowchart TD
-    Provider -- ociconfig --> Requirer
+    Provider -- type, executable_path --> Requirer
 ```
 
 ## Behavior
 
 Data is exchanged through the Juju integration application databag. The OCI runtime provider places its
-configuration - an `OCIConfig` structure from `slurmutils` - in its application databag. The
-`slurmctld` requirer reads this data to construct the `oci.conf` configuration file.
+configuration - an `OCIRuntimeData` structure - in its application databag. The `slurmctld` requirer
+reads this data to construct the `oci.conf` configuration file.
 
 ### Provider
 
@@ -56,7 +56,8 @@ configuration - an `OCIConfig` structure from `slurmutils` - in its application 
 ```yaml
 provider:
   app:
-    ociconfig: '{"RunTimeDefault": "apptainer", "RunTimeEnvExclude": "^SLURM"}'
+    type: '"apptainer"'
+    executable_path: '"/usr/bin/apptainer"'
   unit: {}
 requirer:
   app:
@@ -75,7 +76,6 @@ requirer:
 
 import ops
 from charmed_slurm_oci_runtime_interface import OCIRuntimeData, OCIRuntimeProvider
-from slurmutils import OCIConfig
 
 
 class ApptainerCharm(ops.CharmBase):
@@ -90,8 +90,9 @@ class ApptainerCharm(ops.CharmBase):
 
     def _on_slurmctld_ready(self, event: ops.RelationEvent) -> None:
         """Publish OCI runtime data once slurmctld is connected."""
-        config = OCIConfig({"RunTimeDefault": "apptainer"})
-        self.oci_runtime.set_oci_runtime_data(OCIRuntimeData(ociconfig=config))
+        self.oci_runtime.set_oci_runtime_data(
+            OCIRuntimeData(type="apptainer", executable_path="/usr/bin/apptainer")
+        )
 ```
 
 ### Requirer charm
@@ -120,7 +121,7 @@ class SlurmctldCharm(ops.CharmBase):
     def _on_oci_runtime_ready(self, event: ops.RelationEvent) -> None:
         """Handle when OCI runtime data is available."""
         data: OCIRuntimeData = self.oci_runtime.get_oci_runtime_data()
-        # Use data.ociconfig to write oci.conf
+        # Use data.type and data.executable_path to write oci.conf
 
     def _on_oci_runtime_disconnected(self, event: ops.RelationEvent) -> None:
         """Handle when OCI runtime is disconnected."""

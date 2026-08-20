@@ -14,6 +14,7 @@
 
 """Unit tests for the `slurm_oci_runtime` integration interface implementation."""
 
+import json
 from collections import defaultdict
 
 import ops
@@ -52,7 +53,7 @@ class MockOCIRunTimeProviderCharm(ops.CharmBase):
 
     def _on_slurmctld_connected(self, event: SlurmctldConnectedEvent) -> None:
         self._oci_runtime.set_oci_runtime_data(
-            OCIRuntimeData(ociconfig=EXAMPLE_OCI_CONFIG),
+            OCIRuntimeData(type="apptainer", executable_path="/usr/bin/apptainer"),
             integration_id=event.relation.id,
         )
 
@@ -75,11 +76,11 @@ class MockOCIRunTimeRequirerCharm(ops.CharmBase):
         )
 
     def _on_oci_runtime_ready(self, event: OCIRuntimeReadyEvent) -> None:
-        config = self._oci_runtime.get_oci_runtime_data(event.relation.id)
-        # Assume `remote_app_data` contains `oci.conf` configuration data.
-        assert config.ociconfig.dict() == EXAMPLE_OCI_CONFIG.dict()
+        data = self._oci_runtime.get_oci_runtime_data(event.relation.id)
+        assert data.type == "apptainer"
+        assert data.executable_path == "/usr/bin/apptainer"
 
-    def _on_oci_runtime_disconnected(self, event: OCIRuntimeDisconnectedEvent) -> None: ...
+    def _on_oci_runtime_disconnected(self, _: OCIRuntimeDisconnectedEvent) -> None: ...
 
 
 @pytest.fixture(scope="function")
@@ -136,10 +137,13 @@ class TestSlurmOCIRunTimeInterface:
 
         integration = state.get_relation(oci_runtime_integration_id)
         if leader:
-            # Verify that the leader unit has set `oci.conf` data in `local_app_data`.
-            assert "ociconfig" in integration.local_app_data
-            config = OCIConfig.from_json(integration.local_app_data["ociconfig"])
-            assert config.dict() == EXAMPLE_OCI_CONFIG.dict()
+            # Verify that the leader unit has set required data in `local_app_data`.
+            for required in "type", "executable_path":
+                assert required in integration.local_app_data
+            type_ = json.loads(integration.local_app_data["type"])
+            executable_path = json.loads(integration.local_app_data["executable_path"])
+            assert type_ == "apptainer"
+            assert executable_path == "/usr/bin/apptainer"
         else:
             # Verify that non-leader units have not set anything in `local_app_data`.
             assert integration.local_app_data == {}
@@ -161,7 +165,12 @@ class TestSlurmOCIRunTimeInterface:
             interface="slurm_oci_runtime",
             id=oci_runtime_integration_id,
             remote_app_name="oci-runtime-provider",
-            remote_app_data={"ociconfig": EXAMPLE_OCI_CONFIG.json()} if ready else {},
+            remote_app_data={
+                "type": '"apptainer"',
+                "executable_path": '"/usr/bin/apptainer"',
+            }
+            if ready
+            else {},
         )
 
         requirer_ctx.run(
