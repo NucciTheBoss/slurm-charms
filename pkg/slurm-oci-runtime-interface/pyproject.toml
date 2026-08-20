@@ -14,7 +14,7 @@
 
 [project]
 name = "charmed-slurm-oci-runtime-interface"
-version = "0.1.0"
+version = "1.0.0"
 description = "Integration interface implementation for the `slurm_oci_runtime` interface."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -25,7 +25,7 @@ requires-python = ">=3.12"
 dependencies = [
     "charmed-slurm-slurmctld-interface",
     "ops ~= 3.0",
-    "slurmutils<2.0.0,>=1.1.1",
+    "pydantic ~= 2.0",
 ]
 [build-system]
 requires = ["hatchling"]
