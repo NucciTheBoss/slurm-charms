@@ -373,18 +373,23 @@ class SlurmManager(ABC, AptLifecycleManager):
 
     @property
     def hostname(self) -> str:
-        """Get the hostname of the machine the managed Slurm service is running on."""
+        """Hostname of the machine the managed Slurm service is running on."""
         return socket.gethostname().split(".")[0]
 
     @property
     def etc_path(self) -> Path:
-        """Get the path to the Slurm configuration directory."""
+        """Path to the Slurm configuration directory."""
         return Path("/etc/slurm")
 
     @property
     def var_lib_path(self) -> Path:
-        """Get the path to the Slurm variable state data directory."""
+        """Path to the Slurm variable state data directory."""
         return Path("/var/lib/slurm")
+
+    @property
+    def var_run_path(self) -> Path:
+        """Path to the Slurm variable runtime data directory."""
+        return Path("/var/run/slurm")
 
     def install(self, *, update: bool = True) -> None:
         """Install the Slurm service and apply Slurm-specific post-install configuration.
