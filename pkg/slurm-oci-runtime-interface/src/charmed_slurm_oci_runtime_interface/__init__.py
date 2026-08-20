@@ -22,34 +22,25 @@ __all__ = [
     "OCIRuntimeRequirer",
 ]
 
-from dataclasses import dataclass
+from typing import Any, Literal
 
 import ops
 from charmed_hpc_libs.ops import leader
-from charmed_slurm_slurmctld_interface import (
-    SlurmctldProvider,
-    SlurmctldRequirer,
-    encoder,
-)
-from slurmutils import OCIConfig
+from charmed_slurm_slurmctld_interface import SlurmctldProvider, SlurmctldRequirer
+from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class OCIRuntimeData:
-    """Data provided by the OCI runtime.
+    """Data provided by the OCI runtime provider.
 
     Attributes:
-        ociconfig: OCI runtime data in `oci.conf` configuration file format.
+        type: The type of Slurm-compatible OCI runtime.
+        executable_path: Path to the OCI runtime executable.
     """
 
-    ociconfig: OCIConfig
-
-    def __post_init__(self) -> None:  # noqa D105
-        # If `ociconfig` is determined to be a built-in dictionary object when deserializing
-        # integration data, the `ociconfig` field will be automatically parsed into a
-        # `OCIConfig` object.
-        if isinstance(self.ociconfig, dict):
-            object.__setattr__(self, "ociconfig", OCIConfig(self.ociconfig))
+    type: Literal["apptainer"]
+    executable_path: str
 
 
 class OCIRuntimeReadyEvent(ops.RelationEvent):
@@ -99,8 +90,12 @@ class OCIRuntimeProvider(SlurmctldRequirer):
         super()._on_relation_broken(event)
 
     @leader
-    def set_oci_runtime_data(
-        self, data: OCIRuntimeData, /, integration_id: int | None = None
+    def set_oci_runtime_data(  # noqa D417
+        self,
+        data: OCIRuntimeData,
+        /,
+        integration_id: int | None = None,
+        **kwargs: Any,
     ) -> None:
         """Set OCI runtime data in the `slurm_oci_runtime` application databag.
 
@@ -110,10 +105,21 @@ class OCIRuntimeProvider(SlurmctldRequirer):
                 ID of integration to update. If no integration ID is passed,
                 all integrations will be updated.
 
+        Keyword Args:
+            merge:
+                Whether to merge ``data`` into the integration databag rather than
+                overwriting. When ``True``, only fields whose values differ from their
+                dataclass defaults are written; existing values for unset fields are
+                preserved. Defaults to ``False``.
+            reset:
+                Set of dataclass fields to reset to their default value when
+                ``merge`` is ``True``. Has precedence over `data`. Defaults to an
+                empty set.
+
         Warnings:
             - Only the OCI runtime application leader can set OCI runtime configuration data.
         """
-        self._save_integration_data(data, self.app, integration_id, encoder=encoder)
+        self._save_integration_data(data, self.app, integration_id, **kwargs)
 
 
 class OCIRuntimeRequirer(SlurmctldProvider):
