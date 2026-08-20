@@ -148,19 +148,19 @@ ops = [
 
 [[package]]
 name = "charmed-slurm-oci-runtime-interface"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "pkg/slurm-oci-runtime-interface" }
 dependencies = [
     { name = "charmed-slurm-slurmctld-interface" },
     { name = "ops" },
-    { name = "slurmutils" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "charmed-slurm-slurmctld-interface", editable = "pkg/slurmctld-interface" },
     { name = "ops", specifier = "~=3.0" },
-    { name = "slurmutils", specifier = ">=1.1.1,<2.0.0" },
+    { name = "pydantic", specifier = "~=2.0" },
 ]
 
 [[package]]
